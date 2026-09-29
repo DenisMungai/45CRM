@@ -1,0 +1,20 @@
+import "dotenv/config";
+
+export const ENV = {
+  port: Number(process.env.PORT || 3000),
+  nodeEnv: process.env.NODE_ENV || "development",
+  sessionSecret: process.env.SESSION_SECRET || "change-me-in-production",
+  sessionDays: Number(process.env.SESSION_DAYS || 30),
+  appUrl: process.env.APP_URL || `http://localhost:${process.env.PORT || 3000}`,
+  openAiApiKey: process.env.OPENAI_API_KEY || "",
+  openAiModel: process.env.OPENAI_MODEL || "gpt-5-mini",
+  resendApiKey: process.env.RESEND_API_KEY || "",
+  resendFromEmail: process.env.RESEND_FROM_EMAIL || "",
+  whatsappToken: process.env.WHATSAPP_TOKEN || "",
+  whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+  ga4PropertyId: process.env.GA4_PROPERTY_ID || "",
+  ga4ClientEmail: process.env.GA4_CLIENT_EMAIL || "",
+  ga4PrivateKey: (process.env.GA4_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+  ownerEmail: process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@45creatives.local",
+  ownerPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD || "ChangeMe123!",
+};

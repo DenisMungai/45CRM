@@ -1,0 +1,3 @@
+-- Generated target: PostgreSQL production schema for 45Creatives CRM.
+-- Preferred command after installing dependencies: npm run db:push
+-- This file is intentionally a migration marker; Drizzle Kit will generate the exact SQL from drizzle/schema.ts.
