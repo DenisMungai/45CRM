@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist/public",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api" },
+    { "source": "/uploads/:path*", "destination": "/api" },
+    { "source": "/((?!api|uploads).*)", "destination": "/index.html" }
+  ]
+}
