@@ -34,6 +34,10 @@ import { deleteSession } from "../server/db";
 import { hashSession } from "../server/auth";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import {
+  handleWhatsAppWebhookVerification,
+  handleWhatsAppWebhookEvent,
+} from "../server/whatsappWebhook";
 
 const app = express();
 app.disable("x-powered-by");
@@ -236,6 +240,10 @@ app.post("/api/webhooks/documenso", async (req, res) => {
     res.json({ received: true });
   }
 });
+
+// ── WhatsApp webhook ─────────────────────────────────────────────────────────
+app.get("/api/webhooks/whatsapp", handleWhatsAppWebhookVerification);
+app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookEvent);
 
 // ── tRPC ──────────────────────────────────────────────────────────────────────
 app.use(

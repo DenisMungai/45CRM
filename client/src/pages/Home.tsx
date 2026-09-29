@@ -367,7 +367,7 @@ function InvoiceDetails({ invoice, clientRows, onBack, onRecordPayment }: { invo
 function InventoryPage({ rows, onEdit, onCreate, onDelete, onBulkEdit, onBulkDelete }: { rows: EditableRow[]; onEdit: (index: number) => void; onCreate: () => void; onDelete: (index: number) => void; onBulkEdit: (indices: number[], value: string) => void; onBulkDelete: (indices: number[]) => void }) { const discovery = useTableDiscovery(rows, 6); const selection = useBulkSelection(); const visibleIndices = discovery.visibleRows.map(({ index }) => index); const totalValue = rows.reduce((sum, row) => sum + parseAmount(row[5]), 0); const lowStockCount = rows.filter((row) => /low stock|out of stock/i.test(row[6] || "")).length; const categories = new Set(rows.map((row) => row[1]).filter(Boolean)).size; return <div className="page-content"><PageHeader title="Inventory" subtitle="Track equipment, assets, and production supplies" action="Add Item" onAction={onCreate} /><section className="metric-grid"><MetricCard label="Tracked Items" value={String(rows.length)} meta={categories ? `Across ${categories} categor${categories === 1 ? "y" : "ies"}` : undefined} /><MetricCard label="Inventory Value" value={formatKsh(totalValue)} /><MetricCard label="Low Stock" value={String(lowStockCount)} meta={lowStockCount ? "Needs attention" : "All items well stocked"} tone={lowStockCount ? "danger" : undefined} /></section><TableDiscovery placeholder="Search inventory…" search={discovery.search} onSearch={discovery.setSearch} filter={discovery.filter} onFilter={discovery.setFilter} options={discovery.options} countLabel={`${discovery.visibleRows.length} item${discovery.visibleRows.length === 1 ? "" : "s"}`} /><BulkActions selectedCount={selection.selected.size} options={discovery.options.filter((option) => option !== "All")} onEdit={(value) => { onBulkEdit(Array.from(selection.selected), value); selection.clear(); }} onDelete={() => { onBulkDelete(Array.from(selection.selected)); selection.clear(); }} onClear={selection.clear} /><div className="panel table-panel"><div className="table-scroller"><table className="data-table editable-table"><thead><tr><th><TableCheckbox checked={visibleIndices.length > 0 && visibleIndices.every((index) => selection.selected.has(index))} onChange={() => selection.toggleAll(visibleIndices)} label="Select all visible inventory items" /></th><th>Item</th><th>Category</th><th>SKU</th><th>Qty.</th><th>Unit Cost</th><th>Stock Value</th><th>Status</th><th></th></tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={9} className="activity-empty">No inventory items yet. Add your first item to get started.</td></tr> : discovery.visibleRows.map(({ row: r, index }) => <tr key={`${r[2]}-${index}`}><td><TableCheckbox checked={selection.selected.has(index)} onChange={() => selection.toggle(index)} label={`Select ${r[0]}`} /></td><td className="strong-cell">{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td><td className="value-cell">{r[4]}</td><td className="value-cell">{r[5]}</td><td><Status label={r[6]} tone={statusTone(r[6])} /></td><td><RecordActions onEdit={() => onEdit(index)} onDelete={() => onDelete(index)} /></td></tr>)}</tbody></table></div><Pagination page={discovery.page} totalPages={discovery.totalPages} onPageChange={discovery.setPage} /></div></div>; }
 
 type ContractFormState = {
-  clientId: string; providerName: string; providerEmail: string; providerPhone: string;
+  clientId: string; projectId: string; providerName: string; providerEmail: string; providerPhone: string;
   clientName: string; clientEmail: string; clientPhone: string;
   projectName: string; websiteType: string; pages: string; features: string;
   totalCost: string; depositPercent: string; paymentMethod: string;
@@ -377,17 +377,23 @@ type ContractFormState = {
 };
 
 function emptyContractForm(): ContractFormState {
-  return { clientId: "", providerName: "45Creatives", providerEmail: "", providerPhone: "", clientName: "", clientEmail: "", clientPhone: "", projectName: "", websiteType: "Business website", pages: "Home, About, Services, Projects, Contact", features: "Contact form", totalCost: "", depositPercent: "50", paymentMethod: "M-Pesa", startDate: "", deliveryWeeks: "2", revisionRounds: "2", extraRevisionCost: "", contentDueDate: "", domainIncluded: false, domainName: "", hostingIncluded: false, hostingPlatform: "", hostingCost: "", maintenanceFee: "", notes: "" };
+  return { clientId: "", projectId: "", providerName: "45Creatives", providerEmail: "", providerPhone: "", clientName: "", clientEmail: "", clientPhone: "", projectName: "", websiteType: "Business website", pages: "Home, About, Services, Projects, Contact", features: "Contact form", totalCost: "", depositPercent: "50", paymentMethod: "M-Pesa", startDate: "", deliveryWeeks: "2", revisionRounds: "2", extraRevisionCost: "", contentDueDate: "", domainIncluded: false, domainName: "", hostingIncluded: false, hostingPlatform: "", hostingCost: "", maintenanceFee: "", notes: "" };
 }
 
 type ContractRecord = {
   id: string; title: string; status: "draft" | "sent" | "signed" | "voided";
   clientId: string | null; clientName: string; clientEmail: string | null; clientPhone: string | null;
+  projectId: string | null;
   providerName: string; providerEmail: string | null; providerPhone: string | null;
   fields: ContractFields; documentHtml: string;
   providerSignatureName: string | null; providerSignedAt: Date | string | null;
   clientSignatureName: string | null; clientSignedAt: Date | string | null;
   createdAt: Date | string;
+  whatsappMessageId: string | null;
+  whatsappDeliveryStatus: "sent" | "delivered" | "read" | "failed" | null;
+  whatsappSentAt: Date | string | null;
+  whatsappDeliveredAt: Date | string | null;
+  whatsappReadAt: Date | string | null;
   documensoEnvelopeId: string | null; documensoStatus: "pending" | "completed" | "rejected" | "cancelled" | null;
   documensoProviderSigningUrl: string | null; documensoClientSigningUrl: string | null;
   documensoCertifiedPdfPath: string | null;
@@ -395,12 +401,13 @@ type ContractRecord = {
 
 function contractToForm(contract: ContractRecord): ContractFormState {
   const f = contract.fields;
-  return { clientId: contract.clientId || "", providerName: contract.providerName, providerEmail: contract.providerEmail || "", providerPhone: contract.providerPhone || "", clientName: contract.clientName, clientEmail: contract.clientEmail || "", clientPhone: contract.clientPhone || "", projectName: f.projectName, websiteType: f.websiteType, pages: f.pages, features: f.features, totalCost: String(f.totalCost || ""), depositPercent: String(f.depositPercent ?? 50), paymentMethod: f.paymentMethod, startDate: f.startDate, deliveryWeeks: f.deliveryWeeks, revisionRounds: String(f.revisionRounds ?? 2), extraRevisionCost: String(f.extraRevisionCost || ""), contentDueDate: f.contentDueDate, domainIncluded: f.domainIncluded, domainName: f.domainName, hostingIncluded: f.hostingIncluded, hostingPlatform: f.hostingPlatform, hostingCost: String(f.hostingCost || ""), maintenanceFee: String(f.maintenanceFee || ""), notes: f.notes };
+  return { clientId: contract.clientId || "", projectId: contract.projectId || "", providerName: contract.providerName, providerEmail: contract.providerEmail || "", providerPhone: contract.providerPhone || "", clientName: contract.clientName, clientEmail: contract.clientEmail || "", clientPhone: contract.clientPhone || "", projectName: f.projectName, websiteType: f.websiteType, pages: f.pages, features: f.features, totalCost: String(f.totalCost || ""), depositPercent: String(f.depositPercent ?? 50), paymentMethod: f.paymentMethod, startDate: f.startDate, deliveryWeeks: f.deliveryWeeks, revisionRounds: String(f.revisionRounds ?? 2), extraRevisionCost: String(f.extraRevisionCost || ""), contentDueDate: f.contentDueDate, domainIncluded: f.domainIncluded, domainName: f.domainName, hostingIncluded: f.hostingIncluded, hostingPlatform: f.hostingPlatform, hostingCost: String(f.hostingCost || ""), maintenanceFee: String(f.maintenanceFee || ""), notes: f.notes };
 }
 
 function contractFormToInput(form: ContractFormState) {
   return {
     clientId: form.clientId || undefined,
+    projectId: form.projectId || undefined,
     providerName: form.providerName.trim(),
     providerEmail: form.providerEmail.trim() || undefined,
     providerPhone: form.providerPhone.trim() || undefined,
@@ -435,6 +442,7 @@ function ContractFormDialog({ open, initial, onClose, onSubmit, submitting }: { 
   const [form, setForm] = useState<ContractFormState>(initial);
   useEffect(() => { if (open) setForm(initial); }, [open, initial]);
   const clients = trpc.crm.clients.list.useQuery(undefined, { enabled: open });
+  const projects = trpc.crm.projects.list.useQuery(undefined, { enabled: open });
   if (!open) return null;
   const set = <K extends keyof ContractFormState>(key: K, value: ContractFormState[K]) => setForm((current) => ({ ...current, [key]: value }));
   const applyClient = (id: string) => {
@@ -442,19 +450,32 @@ function ContractFormDialog({ open, initial, onClose, onSubmit, submitting }: { 
     const client = clients.data?.find((c) => c.id === id);
     if (client) { set("clientName", client.name); set("clientEmail", client.email || ""); set("clientPhone", client.phone || ""); }
   };
+  const applyProject = (id: string) => {
+    set("projectId", id);
+    const proj = projects.data?.find((p) => p.id === id);
+    if (proj) {
+      if (!form.projectName || form.projectName === "Untitled project") {
+        set("projectName", proj.name);
+      }
+      if (proj.clientId && (!form.clientId || form.clientId !== proj.clientId)) {
+        applyClient(proj.clientId);
+      }
+    }
+  };
   const canSubmit = form.providerName.trim() && form.clientName.trim() && form.projectName.trim();
   return <div className="record-dialog-backdrop" role="presentation" onMouseDown={onClose}>
     <section className="record-dialog panel contract-dialog" role="dialog" aria-modal="true" aria-labelledby="contract-form-title" onMouseDown={(event) => event.stopPropagation()}>
       <div className="record-dialog-head"><div><span className="eyebrow">Web design & development agreement</span><h2 id="contract-form-title">{initial.projectName ? "Edit service agreement" : "New service agreement"}</h2></div><button className="record-close" aria-label="Close" onClick={onClose}><X /></button></div>
       <div className="contract-form-sections">
-        <fieldset><legend>Parties</legend><div className="record-fields">
+        <fieldset><legend>Parties & Project</legend><div className="record-fields">
           <label>Your business name<input value={form.providerName} onChange={(e) => set("providerName", e.target.value)} /></label>
           <label>Your email<input type="email" value={form.providerEmail} onChange={(e) => set("providerEmail", e.target.value)} /></label>
           <label>Your phone<input value={form.providerPhone} onChange={(e) => set("providerPhone", e.target.value)} placeholder="+254 7XX XXX XXX" /></label>
-          <label>Existing client<select value={form.clientId} onChange={(e) => applyClient(e.target.value)}><option value="">Enter manually</option>{(clients.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <label>Select project<select value={form.projectId} onChange={(e) => applyProject(e.target.value)}><option value="">Enter manually / New project</option>{(projects.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          <label>Select client<select value={form.clientId} onChange={(e) => applyClient(e.target.value)}><option value="">Enter manually</option>{(clients.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
           <label>Client name<input value={form.clientName} onChange={(e) => set("clientName", e.target.value)} /></label>
           <label>Client email<input type="email" value={form.clientEmail} onChange={(e) => set("clientEmail", e.target.value)} /></label>
-          <label>Client phone<input value={form.clientPhone} onChange={(e) => set("clientPhone", e.target.value)} placeholder="+254 7XX XXX XXX" /></label>
+          <label>Client phone (WhatsApp)<input value={form.clientPhone} onChange={(e) => set("clientPhone", e.target.value)} placeholder="+254 7XX XXX XXX" /></label>
         </div></fieldset>
         <fieldset><legend>Scope of work</legend><div className="record-fields">
           <label>Project name<input value={form.projectName} onChange={(e) => set("projectName", e.target.value)} /></label>
@@ -503,10 +524,27 @@ function ContractViewDialog({ contract, onClose }: { contract: ContractRecord | 
   const [sending, setSending] = useState<"email" | "whatsapp" | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [sendResult, setSendResult] = useState<{ channel: "email" | "whatsapp"; signingUrl: string; waLink: string | null; emailDraftUrl: string; deliveryError: string | null; emailConfigured: boolean; whatsappCloudConfigured: boolean; documensoConfigured: boolean; documensoEnvelopeId: string | null; documensoError: string | null } | null>(null);
+  const waMessages = trpc.whatsapp.listByContract.useQuery(
+    { contractId: contract?.id || "" },
+    { enabled: Boolean(contract?.id) }
+  );
   useEffect(() => { setSignatureName(""); setSendResult(null); }, [contract?.id]);
   const signProvider = trpc.contracts.signProvider.useMutation({ onSuccess: () => { toast.success("You signed the agreement"); utils.contracts.list.invalidate(); utils.contracts.get.invalidate(); }, onError: (error) => toast.error(error.message) });
   const send = trpc.contracts.send.useMutation({
-    onSuccess: (result) => { setSendResult(result); utils.contracts.list.invalidate(); if (result.deliveryError) toast.error(`Link ready, but automatic delivery failed: ${result.deliveryError}`); else if (result.channel === "whatsapp" && !result.whatsappCloudConfigured) toast.success("Signing link ready. Open WhatsApp to send it."); else toast.success("Agreement sent to the client"); setSending(null); },
+    onSuccess: (result) => {
+      setSendResult(result);
+      utils.contracts.list.invalidate();
+      if (contract?.id) utils.whatsapp.listByContract.invalidate({ contractId: contract.id });
+      if (result.deliveryError) {
+        toast.error(`Link ready, but automatic delivery failed: ${result.deliveryError}`);
+      } else if (result.channel === "whatsapp") {
+        if (result.whatsappCloudConfigured) toast.success("Agreement sent directly to client's WhatsApp");
+        else toast.success("Signing link ready. Open WhatsApp to send it.");
+      } else {
+        toast.success("Agreement sent to the client");
+      }
+      setSending(null);
+    },
     onError: (error) => { toast.error(error.message); setSending(null); },
   });
   const resendCopies = trpc.contracts.resendSignedCopies.useMutation({ onSuccess: ({ sent }) => toast.success(sent ? `Signed copy emailed to ${sent} recipient${sent === 1 ? "" : "s"}` : "No email recipients on file"), onError: (error) => toast.error(error.message) });
@@ -529,6 +567,21 @@ function ContractViewDialog({ contract, onClose }: { contract: ContractRecord | 
         <div className="contract-signer-row"><div><strong>Service Provider - {contract.providerName}</strong><span>{contract.providerSignedAt ? `Signed by ${contract.providerSignatureName} on ${new Date(contract.providerSignedAt).toLocaleString()}` : "Not yet signed"}</span></div>{!contract.providerSignedAt && <ShieldCheck size={16} color="#d97879" />}</div>
         <div className="contract-signer-row"><div><strong>Client - {contract.clientName}</strong><span>{contract.clientSignedAt ? `Signed by ${contract.clientSignatureName} on ${new Date(contract.clientSignedAt).toLocaleString()}` : "Not yet signed"}</span></div>{!contract.clientSignedAt && contract.status === "sent" && <span className="panel-subtle">Awaiting client</span>}</div>
       </>}
+      {contract.whatsappDeliveryStatus && (
+        <div className="contract-link-box" style={{ borderColor: contract.whatsappDeliveryStatus === "read" ? "#25D366" : undefined }}>
+          <MessageCircle size={13} color={contract.whatsappDeliveryStatus === "read" ? "#25D366" : "#4ade80"} />
+          <span>
+            WhatsApp: <strong style={{ color: contract.whatsappDeliveryStatus === "read" ? "#25D366" : undefined }}>{contract.whatsappDeliveryStatus.toUpperCase()}</strong>
+            {contract.whatsappReadAt
+              ? ` · Read by client on ${new Date(contract.whatsappReadAt).toLocaleString()}`
+              : contract.whatsappDeliveredAt
+              ? ` · Delivered to client on ${new Date(contract.whatsappDeliveredAt).toLocaleString()}`
+              : contract.whatsappSentAt
+              ? ` · Dispatched via WhatsApp Cloud API on ${new Date(contract.whatsappSentAt).toLocaleString()}`
+              : ""}
+          </span>
+        </div>
+      )}
       {!contract.providerSignedAt && contract.status === "draft" && <div className="contract-actions-row"><input value={signatureName} onChange={(e) => setSignatureName(e.target.value)} placeholder="Type your full name to sign" style={{ flex: "1 1 220px", height: 32, padding: "0 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,.14)", background: "rgba(4,6,8,.31)", color: "#eef0ed", fontSize: 9 }} /><button className="primary" disabled={!signatureName.trim() || signProvider.isPending} onClick={() => signProvider.mutate({ id: contract.id, signatureName: signatureName.trim() })}><PenTool />{signProvider.isPending ? "Signing…" : "Sign as provider"}</button></div>}
       {contract.providerSignedAt && (contract.status === "draft" || contract.status === "sent") && <div className="contract-actions-row">
         <button disabled={sending !== null} onClick={() => { setSending("email"); send.mutate({ id: contract.id, channel: "email" }); }}><Mail />{sending === "email" ? "Sending…" : "Send by email"}</button>
@@ -546,6 +599,34 @@ function ContractViewDialog({ contract, onClose }: { contract: ContractRecord | 
             : sendResult.documensoError && <p className="panel-subtle">Documenso signature copy not sent: {sendResult.documensoError}</p>
           : <p className="panel-subtle">Set DOCUMENSO_API_KEY on the server to also collect a certified signature via Documenso.</p>}
       </>}
+      {waMessages.data && waMessages.data.length > 0 && (
+        <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: "rgba(4,6,8,0.4)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 11, fontWeight: 600, color: "#25D366" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}><MessageCircle size={12} /> WhatsApp Activity ({waMessages.data.length})</span>
+            <button className="text-button" onClick={() => waMessages.refetch()} style={{ fontSize: 9 }}><RefreshCw size={10} />Refresh</button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+            {waMessages.data.map((m) => (
+              <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "6px 8px", borderRadius: 6, background: m.direction === "inbound" ? "rgba(37,211,102,0.09)" : "rgba(255,255,255,0.03)", fontSize: 10 }}>
+                <div style={{ flex: 1, paddingRight: 8 }}>
+                  <span style={{ fontWeight: 600, color: m.direction === "inbound" ? "#25D366" : "#eef0ed" }}>
+                    {m.direction === "inbound" ? `Client (${m.phone})` : "45Creatives"}
+                  </span>
+                  <p style={{ margin: "2px 0 0", color: "#a6ada9", whiteSpace: "pre-wrap", fontSize: 9 }}>{m.body.length > 180 ? `${m.body.slice(0, 180)}…` : m.body}</p>
+                </div>
+                <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  <span className={`status-badge status-${m.status === "read" || m.status === "delivered" ? "paid" : m.status === "failed" ? "overdue" : "sent"}`} style={{ fontSize: 8, padding: "1px 5px" }}>
+                    {m.status}
+                  </span>
+                  <div style={{ fontSize: 8, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>
+                    {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {contract.status === "signed" && <div className="contract-actions-row"><button disabled={downloading} onClick={downloadPdf}><FileDown />{downloading ? "Preparing…" : "Download PDF"}</button><button disabled={resendCopies.isPending} onClick={() => resendCopies.mutate({ id: contract.id })}><Send />{resendCopies.isPending ? "Sending…" : "Re-email signed copies"}</button></div>}
       {contract.documensoStatus && <div className="contract-link-box">
         <ShieldCheck size={12} />
@@ -587,7 +668,25 @@ function ContractsPage() {
     <div className="panel table-panel"><div className="table-scroller"><table className="data-table">
       <thead><tr><th>Project</th><th>Client</th><th>Total</th><th>Status</th><th>Created</th><th></th></tr></thead>
       <tbody>{contracts.length === 0 ? <tr><td colSpan={6} className="activity-empty">No agreements yet. Create one to get started.</td></tr> : contracts.map((c) => <tr key={c.id} className="clickable" onClick={() => setViewingId(c.id)}>
-        <td className="strong-cell">{c.fields.projectName || c.title}</td>
+        <td className="strong-cell">
+          {c.fields.projectName || c.title}
+          {c.whatsappDeliveryStatus && (
+            <span
+              style={{
+                marginLeft: 8,
+                fontSize: 9,
+                fontWeight: 600,
+                padding: "1px 6px",
+                borderRadius: 4,
+                background: c.whatsappDeliveryStatus === "read" ? "rgba(37,211,102,0.2)" : "rgba(255,255,255,0.08)",
+                color: c.whatsappDeliveryStatus === "read" ? "#25D366" : "#a6ada9",
+              }}
+              title={`WhatsApp status: ${c.whatsappDeliveryStatus}`}
+            >
+              WA: {c.whatsappDeliveryStatus}
+            </span>
+          )}
+        </td>
         <td>{c.clientName}</td>
         <td className="value-cell">KES {Number(c.fields.totalCost || 0).toLocaleString("en-KE")}</td>
         <td><ContractStatusBadge status={c.status} /></td>

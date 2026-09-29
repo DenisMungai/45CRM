@@ -101,12 +101,13 @@ export function renderContractHtml(fields: ContractFields, provider: Party, clie
   return `<article class="contract-document"><h1>${esc(heading)}</h1>${body}${signBlock}</article>`;
 }
 
-export async function createContract(workspaceId: string, userId: string, input: { clientId?: string | null; title: string; providerName: string; providerEmail?: string | null; providerPhone?: string | null; clientName: string; clientEmail?: string | null; clientPhone?: string | null; fields: ContractFields }) {
+export async function createContract(workspaceId: string, userId: string, input: { clientId?: string | null; projectId?: string | null; title: string; providerName: string; providerEmail?: string | null; providerPhone?: string | null; clientName: string; clientEmail?: string | null; clientPhone?: string | null; fields: ContractFields }) {
   const documentText = renderContractText(input.fields, { name: input.providerName, email: input.providerEmail, phone: input.providerPhone }, { name: input.clientName, email: input.clientEmail, phone: input.clientPhone }, input.title);
   const documentHtml = renderContractHtml(input.fields, { name: input.providerName, email: input.providerEmail, phone: input.providerPhone }, { name: input.clientName, email: input.clientEmail, phone: input.clientPhone }, input.title, { providerName: null, providerSignedAt: null, clientName: null, clientSignedAt: null, clientSignatureImageUrl: null });
   return getDb().insert(contracts).values({
     workspaceId,
     clientId: input.clientId || null,
+    projectId: input.projectId || null,
     title: input.title,
     providerName: input.providerName,
     providerEmail: input.providerEmail,
@@ -121,7 +122,7 @@ export async function createContract(workspaceId: string, userId: string, input:
   }).returning().then((r) => r[0]);
 }
 
-export async function updateContract(workspaceId: string, id: string, input: { clientId?: string | null; title: string; providerName: string; providerEmail?: string | null; providerPhone?: string | null; clientName: string; clientEmail?: string | null; clientPhone?: string | null; fields: ContractFields }) {
+export async function updateContract(workspaceId: string, id: string, input: { clientId?: string | null; projectId?: string | null; title: string; providerName: string; providerEmail?: string | null; providerPhone?: string | null; clientName: string; clientEmail?: string | null; clientPhone?: string | null; fields: ContractFields }) {
   const existing = await getContract(workspaceId, id);
   const documentText = renderContractText(input.fields, { name: input.providerName, email: input.providerEmail, phone: input.providerPhone }, { name: input.clientName, email: input.clientEmail, phone: input.clientPhone }, input.title);
   const documentHtml = renderContractHtml(input.fields, { name: input.providerName, email: input.providerEmail, phone: input.providerPhone }, { name: input.clientName, email: input.clientEmail, phone: input.clientPhone }, input.title, {
@@ -133,6 +134,7 @@ export async function updateContract(workspaceId: string, id: string, input: { c
   });
   return getDb().update(contracts).set({
     clientId: input.clientId || null,
+    projectId: input.projectId || null,
     title: input.title,
     providerName: input.providerName,
     providerEmail: input.providerEmail,
@@ -151,6 +153,11 @@ export async function updateContract(workspaceId: string, id: string, input: { c
     expiresAt: null,
     providerSignatureName: null,
     providerSignedAt: null,
+    whatsappMessageId: null,
+    whatsappDeliveryStatus: null,
+    whatsappSentAt: null,
+    whatsappDeliveredAt: null,
+    whatsappReadAt: null,
     updatedAt: new Date(),
   }).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
 }
@@ -171,8 +178,34 @@ export async function signContractAsProvider(workspaceId: string, id: string, si
   return getDb().update(contracts).set({ providerSignatureName: signatureName, providerSignedAt: new Date(), updatedAt: new Date() }).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
 }
 
-export async function markContractSent(workspaceId: string, id: string, tokenHash: string) {
-  return getDb().update(contracts).set({ status: "sent", tokenHash, sentAt: new Date(), expiresAt: new Date(Date.now() + 30 * 86400000), updatedAt: new Date() }).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
+export async function markContractSent(
+  workspaceId: string,
+  id: string,
+  tokenHash: string,
+  whatsapp?: { messageId?: string | null; status?: string | null }
+) {
+  return getDb().update(contracts).set({
+    status: "sent",
+    tokenHash,
+    sentAt: new Date(),
+    expiresAt: new Date(Date.now() + 30 * 86400000),
+    ...(whatsapp?.messageId ? { whatsappMessageId: whatsapp.messageId } : {}),
+    ...(whatsapp?.status ? { whatsappDeliveryStatus: whatsapp.status, whatsappSentAt: new Date() } : {}),
+    updatedAt: new Date(),
+  }).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
+}
+
+export async function setContractWhatsAppStatus(
+  contractId: string,
+  whatsappMessageId: string,
+  status: string
+) {
+  return getDb().update(contracts).set({
+    whatsappMessageId,
+    whatsappDeliveryStatus: status,
+    whatsappSentAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(contracts.id, contractId)).returning().then((r) => r[0]);
 }
 
 export async function findContractByTokenHash(tokenHash: string) {

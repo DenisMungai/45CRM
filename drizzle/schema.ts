@@ -274,10 +274,16 @@ export const contracts = pgTable("contracts", {
   documensoClientSigningUrl: text("documenso_client_signing_url"),
   documensoCertifiedPdfPath: text("documenso_certified_pdf_path"),
   documensoCompletedAt: timestamp("documenso_completed_at", { withTimezone: true }),
+  // WhatsApp Cloud API delivery & tracking
+  whatsappMessageId: varchar("whatsapp_message_id", { length: 160 }),
+  whatsappDeliveryStatus: varchar("whatsapp_delivery_status", { length: 32 }),
+  whatsappSentAt: timestamp("whatsapp_sent_at", { withTimezone: true }),
+  whatsappDeliveredAt: timestamp("whatsapp_delivered_at", { withTimezone: true }),
+  whatsappReadAt: timestamp("whatsapp_read_at", { withTimezone: true }),
   createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-}, (t) => [index("contracts_workspace_idx").on(t.workspaceId), index("contracts_client_idx").on(t.clientId), uniqueIndex("contracts_token_hash_idx").on(t.tokenHash)]);
+}, (t) => [index("contracts_workspace_idx").on(t.workspaceId), index("contracts_client_idx").on(t.clientId), index("contracts_project_idx").on(t.projectId), uniqueIndex("contracts_token_hash_idx").on(t.tokenHash), index("contracts_wa_msg_idx").on(t.whatsappMessageId)]);
 
 export const files = pgTable("files", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -302,14 +308,44 @@ export const activityEvents = pgTable("activity_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("activity_workspace_idx").on(t.workspaceId), index("activity_entity_idx").on(t.entityType, t.entityId), index("activity_created_idx").on(t.createdAt)]);
 
+export const whatsappMessages = pgTable("whatsapp_messages", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+  contractId: uuid("contract_id").references(() => contracts.id, { onDelete: "set null" }),
+  direction: varchar("direction", { length: 16 }).default("outbound").notNull(),
+  phone: varchar("phone", { length: 40 }).notNull(),
+  waMessageId: varchar("wa_message_id", { length: 160 }),
+  messageType: varchar("message_type", { length: 32 }).default("text").notNull(),
+  body: text("body").notNull(),
+  status: varchar("status", { length: 32 }).default("sent").notNull(),
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata"),
+  sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index("wa_messages_workspace_idx").on(t.workspaceId),
+  index("wa_messages_client_idx").on(t.clientId),
+  index("wa_messages_contract_idx").on(t.contractId),
+  index("wa_messages_wa_id_idx").on(t.waMessageId),
+  index("wa_messages_phone_idx").on(t.workspaceId, t.phone),
+  index("wa_messages_created_idx").on(t.createdAt),
+]);
 
 export type User = typeof users.$inferSelect;
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
+export type Contract = typeof contracts.$inferSelect;
+export type WhatsAppMessage = typeof whatsappMessages.$inferSelect;
 
-export const workspaceRelations = relations(workspaces, ({ many }) => ({ members: many(workspaceMembers), clients: many(clients), leads: many(leads), projects: many(projects), quotes: many(quotes), invoices: many(invoices), payments: many(payments), expenses: many(expenses), transactions: many(transactions), inventoryItems: many(inventoryItems), activityEvents: many(activityEvents), contracts: many(contracts) }));
+export const workspaceRelations = relations(workspaces, ({ many }) => ({ members: many(workspaceMembers), clients: many(clients), leads: many(leads), projects: many(projects), quotes: many(quotes), invoices: many(invoices), payments: many(payments), expenses: many(expenses), transactions: many(transactions), inventoryItems: many(inventoryItems), activityEvents: many(activityEvents), contracts: many(contracts), whatsappMessages: many(whatsappMessages) }));
 export const userRelations = relations(users, ({ many }) => ({ memberships: many(workspaceMembers), sessions: many(sessions) }));
-export const clientRelations = relations(clients, ({ many }) => ({ leads: many(leads), projects: many(projects), quotes: many(quotes), invoices: many(invoices), payments: many(payments), contracts: many(contracts) }));
-export const projectRelations = relations(projects, ({ many }) => ({ tasks: many(projectTasks) }));
+export const clientRelations = relations(clients, ({ many }) => ({ leads: many(leads), projects: many(projects), quotes: many(quotes), invoices: many(invoices), payments: many(payments), contracts: many(contracts), whatsappMessages: many(whatsappMessages) }));
+export const projectRelations = relations(projects, ({ many }) => ({ tasks: many(projectTasks), contracts: many(contracts) }));
+export const contractRelations = relations(contracts, ({ one, many }) => ({ workspace: one(workspaces, { fields: [contracts.workspaceId], references: [workspaces.id] }), client: one(clients, { fields: [contracts.clientId], references: [clients.id] }), project: one(projects, { fields: [contracts.projectId], references: [projects.id] }), whatsappMessages: many(whatsappMessages) }));
+export const whatsappMessagesRelations = relations(whatsappMessages, ({ one }) => ({ workspace: one(workspaces, { fields: [whatsappMessages.workspaceId], references: [workspaces.id] }), client: one(clients, { fields: [whatsappMessages.clientId], references: [clients.id] }), contract: one(contracts, { fields: [whatsappMessages.contractId], references: [contracts.id] }) }));
 export const quoteRelations = relations(quotes, ({ many }) => ({ items: many(quoteItems) }));
 export const invoiceRelations = relations(invoices, ({ many }) => ({ items: many(invoiceItems), payments: many(payments) }));

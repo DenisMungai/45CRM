@@ -17,6 +17,7 @@ import { serveStatic } from "./_core/vite";
 import { ENV } from "./_core/env";
 import * as contractsDb from "./contracts";
 import { fetchDocumensoCertifiedPdf, verifyDocumensoWebhookSecret } from "./documenso";
+import { handleWhatsAppWebhookVerification, handleWhatsAppWebhookEvent } from "./whatsappWebhook";
 
 const app = express();
 const server = createServer(app);
@@ -140,6 +141,10 @@ app.post("/api/webhooks/documenso", async (req, res) => {
     res.json({ received: true });
   }
 });
+
+// WhatsApp Business Cloud API Webhooks
+app.get("/api/webhooks/whatsapp", handleWhatsAppWebhookVerification);
+app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookEvent);
 
 app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 

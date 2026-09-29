@@ -5,7 +5,8 @@ import { getSessionCookieOptions, COOKIE_NAME } from "./_core/cookies";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { sendTeamInvitation } from "./invitationDelivery";
 import { isEmailDeliveryConfigured, sendEmail } from "./emailDelivery";
-import { buildWhatsAppLink, isWhatsAppCloudConfigured, sendWhatsAppMessage } from "./whatsappDelivery";
+import { buildWhatsAppLink, isWhatsAppCloudConfigured, sendWhatsAppMessage, buildAgreementWhatsAppMessage } from "./whatsappDelivery";
+import * as waDb from "./whatsappDb";
 import { cancelDocumensoEnvelope, createDocumensoEnvelope, isDocumensoConfigured } from "./documenso";
 import { getGa4Summary, isGa4Configured } from "./googleAnalytics";
 import { storagePut } from "./storage";
@@ -53,6 +54,7 @@ const contractFieldsInput = z.object({
 }) satisfies z.ZodType<ContractFields>;
 const contractPartyInput = {
   clientId: z.string().uuid().nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
   title: z.string().trim().max(200).optional(),
   providerName: z.string().trim().min(1).max(160),
   providerEmail: z.string().trim().email().nullable().optional(),
@@ -246,18 +248,72 @@ export const appRouter = router({
       if (input.channel === "email" && !contract.clientEmail) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a client email address before sending by email." });
       if (input.channel === "whatsapp" && !contract.clientPhone) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a client phone number before sending by WhatsApp." });
       const raw = newSigningToken();
-      await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw));
       const signingUrl = `${ENV.appUrl}/contracts/sign/${raw}`;
-      const message = `Hi ${contract.clientName}, your service agreement for "${contract.fields && (contract.fields as ContractFields).projectName}" from ${contract.providerName} is ready to review and sign: ${signingUrl}`;
+      const projectName = (contract.fields as ContractFields)?.projectName || contract.title;
+      const message = buildAgreementWhatsAppMessage({
+        clientName: contract.clientName,
+        projectName,
+        providerName: contract.providerName,
+        signingUrl,
+      });
       const waLink = contract.clientPhone ? buildWhatsAppLink(contract.clientPhone, message) : null;
       let deliveryError: string | null = null;
+      let whatsappMessageId: string | null = null;
+
       if (input.channel === "email") {
+        await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw));
         try {
           const pdf = await buildContractPdfAttachment(contract).catch(() => null);
           await sendEmail({ to: contract.clientEmail!, subject: `Please sign: ${contract.title}`, html: `${contract.documentHtml}<p style="margin-top:18px"><a href="${signingUrl}">Click here to review and sign the agreement</a></p>`, attachments: pdf ? [pdf] : undefined });
         } catch (error) { deliveryError = error instanceof Error ? error.message : "Email delivery failed."; }
-      } else if (input.channel === "whatsapp" && isWhatsAppCloudConfigured()) {
-        try { await sendWhatsAppMessage(contract.clientPhone!, message); } catch (error) { deliveryError = error instanceof Error ? error.message : "WhatsApp delivery failed."; }
+      } else if (input.channel === "whatsapp") {
+        if (isWhatsAppCloudConfigured()) {
+          try {
+            const sendResult = await sendWhatsAppMessage(contract.clientPhone!, message);
+            whatsappMessageId = sendResult.providerId;
+            await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw), {
+              messageId: whatsappMessageId,
+              status: "sent",
+            });
+            await waDb.recordWhatsAppMessage(ctx.user.workspaceId, {
+              clientId: contract.clientId,
+              contractId: contract.id,
+              direction: "outbound",
+              phone: contract.clientPhone!,
+              waMessageId: whatsappMessageId,
+              body: message,
+              status: "sent",
+              metadata: { channel: "whatsapp", signingUrl },
+            });
+            await db.appendDashboardActivity(ctx.user.workspaceId, [
+              {
+                recordId: contract.id,
+                tableName: "contracts",
+                action: "WhatsApp Sent",
+                detail: `Agreement link sent to ${contract.clientName} (${contract.clientPhone}) via WhatsApp Cloud API.`,
+                actorUserId: ctx.user.id,
+              },
+            ]);
+          } catch (error) {
+            deliveryError = error instanceof Error ? error.message : "WhatsApp delivery failed.";
+            await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw), {
+              status: "failed",
+            });
+            await waDb.recordWhatsAppMessage(ctx.user.workspaceId, {
+              clientId: contract.clientId,
+              contractId: contract.id,
+              direction: "outbound",
+              phone: contract.clientPhone!,
+              body: message,
+              status: "failed",
+              errorMessage: deliveryError,
+              metadata: { channel: "whatsapp", signingUrl },
+            }).catch(() => {});
+          }
+        } else {
+          // Cloud API credentials not yet entered - mark sent and prepare one-click wa.me link
+          await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw));
+        }
       }
       // Documenso layer: on top of the link above, also send both parties a Documenso envelope of
       // the same PDF purely to capture a certified, independently auditable e-signature. This is
@@ -336,6 +392,21 @@ export const appRouter = router({
       if (failed === results.length && results.length > 0) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Unable to email the signed copies. Check RESEND_API_KEY and RESEND_FROM_EMAIL." });
       return { success: true as const, sent: results.length - failed };
     }),
+  }),
+  whatsapp: router({
+    status: protectedProcedure.query(() => ({
+      configured: isWhatsAppCloudConfigured(),
+      phoneNumberId: ENV.whatsappPhoneNumberId ? `${ENV.whatsappPhoneNumberId.slice(0, 4)}...${ENV.whatsappPhoneNumberId.slice(-4)}` : null,
+      businessAccountId: ENV.whatsappBusinessAccountId || null,
+      webhookUrl: ENV.whatsappWebhookUrl || `${ENV.appUrl}/api/webhooks/whatsapp`,
+      verifyTokenConfigured: Boolean(ENV.whatsappVerifyToken),
+    })),
+    listByContract: protectedProcedure
+      .input(z.object({ contractId: z.string().uuid() }))
+      .query(({ ctx, input }) => waDb.listWhatsAppMessagesForContract(ctx.user.workspaceId, input.contractId)),
+    listByClient: protectedProcedure
+      .input(z.object({ clientId: z.string().uuid() }))
+      .query(({ ctx, input }) => waDb.listWhatsAppMessagesForClient(ctx.user.workspaceId, input.clientId)),
   }),
 });
 export type AppRouter = typeof appRouter;
