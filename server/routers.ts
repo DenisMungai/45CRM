@@ -261,10 +261,10 @@ export const appRouter = router({
       let whatsappMessageId: string | null = null;
 
       if (input.channel === "email") {
-        await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw));
         try {
           const pdf = await buildContractPdfAttachment(contract).catch(() => null);
           await sendEmail({ to: contract.clientEmail!, subject: `Please sign: ${contract.title}`, html: `${contract.documentHtml}<p style="margin-top:18px"><a href="${signingUrl}">Click here to review and sign the agreement</a></p>`, attachments: pdf ? [pdf] : undefined });
+          await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw));
         } catch (error) { deliveryError = error instanceof Error ? error.message : "Email delivery failed."; }
       } else if (input.channel === "whatsapp") {
         if (isWhatsAppCloudConfigured()) {
