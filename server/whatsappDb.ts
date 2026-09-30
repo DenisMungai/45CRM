@@ -1,6 +1,6 @@
 import { and, desc, eq, or } from "drizzle-orm";
-import { getDb } from "./db";
-import { contracts, whatsappMessages, clients, leads } from "../drizzle/schema";
+import { getDb } from "./db.js";
+import { contracts, whatsappMessages, clients, leads } from "../drizzle/schema.js";
 
 export function normalizePhoneNumber(phone: string): string {
   // Strip non-digits

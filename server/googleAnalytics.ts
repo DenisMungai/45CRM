@@ -1,5 +1,5 @@
 import { createSign } from "node:crypto";
-import { ENV } from "./_core/env";
+import { ENV } from "./_core/env.js";
 
 export function isGa4Configured() {
   return Boolean(ENV.ga4PropertyId && ENV.ga4ClientEmail && ENV.ga4PrivateKey);

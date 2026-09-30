@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { getDb } from "./db";
-import { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions } from "../drizzle/schema";
+import { getDb } from "./db.js";
+import { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions } from "../drizzle/schema.js";
 
 export const crmTables = { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions };
 

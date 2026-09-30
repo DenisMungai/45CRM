@@ -8,36 +8,36 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { appRouter } from "../server/routers";
-import { createContext } from "../server/_core/trpc";
-import { COOKIE_NAME, getSessionCookieOptions } from "../server/_core/cookies";
+import { appRouter } from "../server/routers.js";
+import { createContext } from "../server/_core/trpc.js";
+import { COOKIE_NAME, getSessionCookieOptions } from "../server/_core/cookies.js";
 import {
   findUserByEmail,
   listUserWorkspaces,
   appendDashboardActivity,
   findWorkspaceByWebhookSecret,
-} from "../server/db";
-import { upsertLead } from "../server/crm";
-import { sendEmail, isEmailDeliveryConfigured } from "../server/emailDelivery";
-import { verifyPassword, issueSession } from "../server/auth";
-import { ENV } from "../server/_core/env";
+} from "../server/db.js";
+import { upsertLead } from "../server/crm.js";
+import { sendEmail, isEmailDeliveryConfigured } from "../server/emailDelivery.js";
+import { verifyPassword, issueSession } from "../server/auth.js";
+import { ENV } from "../server/_core/env.js";
 import {
   findContractByDocumensoEnvelopeId,
   setDocumensoStatus,
-} from "../server/contracts";
+} from "../server/contracts.js";
 import {
   fetchDocumensoCertifiedPdf,
   verifyDocumensoWebhookSecret,
-} from "../server/documenso";
-import { updateUser } from "../server/db";
-import { deleteSession } from "../server/db";
-import { hashSession } from "../server/auth";
+} from "../server/documenso.js";
+import { updateUser } from "../server/db.js";
+import { deleteSession } from "../server/db.js";
+import { hashSession } from "../server/auth.js";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import {
   handleWhatsAppWebhookVerification,
   handleWhatsAppWebhookEvent,
-} from "../server/whatsappWebhook";
+} from "../server/whatsappWebhook.js";
 
 const app = express();
 app.disable("x-powered-by");

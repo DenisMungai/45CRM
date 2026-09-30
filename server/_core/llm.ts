@@ -1,4 +1,4 @@
-import { ENV } from "./env";
+import { ENV } from "./env.js";
 
 type Message = { role: "system" | "user" | "assistant"; content: string };
 export async function listLLMModels() { return { data: [{ id: ENV.openAiModel }] }; }

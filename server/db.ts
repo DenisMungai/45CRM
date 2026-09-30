@@ -2,7 +2,7 @@ import { asc, desc, eq, and, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes } from "node:crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { activityEvents, clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions, users, workspaceInvitations, workspaceMembers, workspaces, sessions } from "../drizzle/schema";
+import { activityEvents, clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions, users, workspaceInvitations, workspaceMembers, workspaces, sessions } from "../drizzle/schema.js";
 
 let pool: Pool | null = null;
 let db: ReturnType<typeof drizzle> | null = null;
@@ -48,7 +48,7 @@ export async function findWorkspaceByWebhookSecret(secret: string) {
 export async function listUserWorkspaces(userId: string) { return getDb().select({ workspace: workspaces, membership: workspaceMembers }).from(workspaceMembers).innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId)).where(and(eq(workspaceMembers.userId, userId), eq(workspaceMembers.status, "active"))).orderBy(asc(workspaces.name)); }
 export async function countWorkspaceAdmins(workspaceId: string) { return getDb().select().from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, workspaceId), inArray(workspaceMembers.role, ["owner", "admin"]), eq(workspaceMembers.status, "active"))).then(r => r.length); }
 
-export async function createSession(userId: string, workspaceId: string, tokenHash: string, expiresAt: Date) { return getDb().insert((await import("../drizzle/schema")).sessions).values({ userId, workspaceId, tokenHash, expiresAt }).returning().then(r => r[0]); }
+export async function createSession(userId: string, workspaceId: string, tokenHash: string, expiresAt: Date) { return getDb().insert((await import("../drizzle/schema.js")).sessions).values({ userId, workspaceId, tokenHash, expiresAt }).returning().then(r => r[0]); }
 export async function findSession(tokenHash: string) { return getDb().select({ session: sessions, user: users, membership: workspaceMembers, workspace: workspaces }).from(sessions).innerJoin(users, eq(users.id, sessions.userId)).innerJoin(workspaceMembers, and(eq(workspaceMembers.userId, users.id), eq(workspaceMembers.workspaceId, sessions.workspaceId))).innerJoin(workspaces, eq(workspaces.id, sessions.workspaceId)).where(and(eq(sessions.tokenHash, tokenHash), eq(workspaceMembers.status, "active"))).limit(1).then(r => r[0]); }
 export async function deleteSession(tokenHash: string) { await getDb().delete(sessions).where(eq(sessions.tokenHash, tokenHash)); }
 export async function touchSession(id: string) { await getDb().update(sessions).set({ lastSeenAt: new Date() }).where(eq(sessions.id, id)); }

@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { ENV } from "./_core/env";
-import * as waDb from "./whatsappDb";
-import { appendDashboardActivity } from "./db";
+import { ENV } from "./_core/env.js";
+import * as waDb from "./whatsappDb.js";
+import { appendDashboardActivity } from "./db.js";
 
 export function verifyWhatsAppWebhookSignature(rawBody: Buffer | undefined, signature: string | undefined) {
   const appSecret = process.env.WHATSAPP_APP_SECRET || ENV.whatsappAppSecret;

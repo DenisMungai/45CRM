@@ -5,19 +5,19 @@ import { createServer } from "node:http";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { appRouter } from "./routers";
-import { createContext } from "./_core/trpc";
-import { COOKIE_NAME, getSessionCookieOptions } from "./_core/cookies";
-import { findUserByEmail, findUserById, listUserWorkspaces } from "./db";
-import * as db from "./db";
-import * as crm from "./crm";
-import { sendEmail, isEmailDeliveryConfigured } from "./emailDelivery";
-import { hashPassword, verifyPassword, issueSession } from "./auth";
-import { serveStatic } from "./_core/vite";
-import { ENV } from "./_core/env";
-import * as contractsDb from "./contracts";
-import { fetchDocumensoCertifiedPdf, verifyDocumensoWebhookSecret } from "./documenso";
-import { handleWhatsAppWebhookVerification, handleWhatsAppWebhookEvent } from "./whatsappWebhook";
+import { appRouter } from "./routers.js";
+import { createContext } from "./_core/trpc.js";
+import { COOKIE_NAME, getSessionCookieOptions } from "./_core/cookies.js";
+import { findUserByEmail, findUserById, listUserWorkspaces } from "./db.js";
+import * as db from "./db.js";
+import * as crm from "./crm.js";
+import { sendEmail, isEmailDeliveryConfigured } from "./emailDelivery.js";
+import { hashPassword, verifyPassword, issueSession } from "./auth.js";
+import { serveStatic } from "./_core/vite.js";
+import { ENV } from "./_core/env.js";
+import * as contractsDb from "./contracts.js";
+import { fetchDocumensoCertifiedPdf, verifyDocumensoWebhookSecret } from "./documenso.js";
+import { handleWhatsAppWebhookVerification, handleWhatsAppWebhookEvent } from "./whatsappWebhook.js";
 
 const app = express();
 const server = createServer(app);
@@ -55,7 +55,7 @@ app.post("/api/auth/login", async (req, res) => {
 });
 app.post("/api/auth/logout", async (req, res) => {
   const token = req.cookies?.[COOKIE_NAME];
-  if (token) { const { hashSession } = await import("./auth"); const { deleteSession } = await import("./db"); await deleteSession(hashSession(token)); }
+  if (token) { const { hashSession } = await import("./auth.js"); const { deleteSession } = await import("./db.js"); await deleteSession(hashSession(token)); }
   res.clearCookie(COOKIE_NAME, getSessionCookieOptions());
   res.json({ success: true });
 });

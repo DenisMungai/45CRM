@@ -1,5 +1,5 @@
-import { ENV } from "./_core/env";
-import { normalizePhoneNumber } from "./whatsappDb";
+import { ENV } from "./_core/env.js";
+import { normalizePhoneNumber } from "./whatsappDb.js";
 
 export function isWhatsAppCloudConfigured() {
   const token = ENV.whatsappAccessToken || ENV.whatsappToken;

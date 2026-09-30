@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { buildContractSections } from "./contracts";
-import type { ContractFields } from "../shared/contract";
+import { buildContractSections } from "./contracts.js";
+import type { ContractFields } from "../shared/contract.js";
 
 type Party = { name: string; email?: string | null; phone?: string | null };
 type Signatures = {

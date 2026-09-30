@@ -1,8 +1,8 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { Request, Response } from "express";
 import superjson from "superjson";
-import { findSession, touchSession } from "../db";
-import { COOKIE_NAME } from "./cookies";
+import { findSession, touchSession } from "../db.js";
+import { COOKIE_NAME } from "./cookies.js";
 
 export type AuthUser = {
   id: string;

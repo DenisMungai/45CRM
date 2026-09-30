@@ -1,4 +1,4 @@
-import { isEmailDeliveryConfigured, sendEmail } from "./emailDelivery";
+import { isEmailDeliveryConfigured, sendEmail } from "./emailDelivery.js";
 
 type InvitationEmail = { email: string; role: "admin" | "member"; inviteUrl: string };
 

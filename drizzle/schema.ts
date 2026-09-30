@@ -1,6 +1,6 @@
 import { relations } from "drizzle-orm";
 import { boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
-import type { ContractFields } from "../shared/contract";
+import type { ContractFields } from "../shared/contract.js";
 
 export const appRole = pgEnum("app_role", ["owner", "admin", "member"]);
 export const memberStatus = pgEnum("member_status", ["active", "invited", "suspended"]);

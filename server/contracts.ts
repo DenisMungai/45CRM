@@ -1,10 +1,10 @@
 import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { getDb } from "./db";
-import { contracts } from "../drizzle/schema";
-import { defaultContractFields, type ContractFields } from "../shared/contract";
+import { getDb } from "./db.js";
+import { contracts } from "../drizzle/schema.js";
+import { defaultContractFields, type ContractFields } from "../shared/contract.js";
 
-export { defaultContractFields, type ContractFields } from "../shared/contract";
+export { defaultContractFields, type ContractFields } from "../shared/contract.js";
 
 const money = (n: number) => `KES ${Math.max(0, Math.round(n || 0)).toLocaleString("en-KE")}`;
 const esc = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

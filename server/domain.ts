@@ -1,8 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { getDb } from "./db";
-import { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions } from "../drizzle/schema";
-import { syncPaymentTransaction } from "./crm";
+import { getDb } from "./db.js";
+import { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions } from "../drizzle/schema.js";
+import { syncPaymentTransaction } from "./crm.js";
 
 type Row = { id: string; tableName: string; recordData: string[] };
 const uuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : randomUUID();
