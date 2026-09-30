@@ -518,7 +518,7 @@ function ContractStatusBadge({ status }: { status: string }) {
   return <Status label={status.charAt(0).toUpperCase() + status.slice(1)} tone={tone} />;
 }
 
-function ContractViewDialog({ contract, onClose }: { contract: ContractRecord | null; onClose: () => void }) {
+function ContractViewDialog({ contract, onClose, onDelete, deleting }: { contract: ContractRecord | null; onClose: () => void; onDelete: (contract: ContractRecord) => void; deleting: boolean }) {
   const utils = trpc.useUtils();
   const [signatureName, setSignatureName] = useState("");
   const [sending, setSending] = useState<"email" | "whatsapp" | null>(null);
@@ -639,6 +639,7 @@ function ContractViewDialog({ contract, onClose }: { contract: ContractRecord | 
         {contract.documensoStatus === "completed" && contract.documensoCertifiedPdfPath && <a className="text-button" href={contract.documensoCertifiedPdfPath} target="_blank" rel="noreferrer"><FileDown size={11} />Download certified PDF</a>}
         {contract.documensoStatus === "pending" && contract.documensoProviderSigningUrl && <a className="text-button" href={contract.documensoProviderSigningUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} />Sign on Documenso</a>}
       </div>}
+      <div className="contract-actions-row"><button className="contract-delete-button" disabled={deleting} onClick={() => onDelete(contract)}><Trash2 />{deleting ? "Deleting…" : "Delete agreement"}</button></div>
       <div className="contract-document" dangerouslySetInnerHTML={{ __html: contract.documentHtml }} />
     </section>
   </div>;
@@ -651,12 +652,16 @@ function ContractsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewingId, setViewingId] = useState<string | null>(null);
-  const create = trpc.contracts.create.useMutation({ onSuccess: () => { toast.success("Agreement created"); setFormOpen(false); utils.contracts.list.invalidate(); }, onError: (error) => toast.error(error.message) });
+  const create = trpc.contracts.create.useMutation({ onSuccess: async (contract) => { toast.success("Agreement created"); setFormOpen(false); await utils.contracts.list.invalidate(); setViewingId(contract.id); }, onError: (error) => toast.error(error.message) });
   const update = trpc.contracts.update.useMutation({ onSuccess: () => { toast.success("Agreement updated"); setFormOpen(false); setEditingId(null); utils.contracts.list.invalidate(); }, onError: (error) => toast.error(error.message) });
+  const remove = trpc.contracts.delete.useMutation({ onSuccess: () => { toast.success("Agreement deleted"); setViewingId(null); utils.contracts.list.invalidate(); }, onError: (error) => toast.error(error.message) });
   const contracts = (list.data || []) as ContractRecord[];
   const counts = { total: contracts.length, draft: contracts.filter((c) => c.status === "draft").length, sent: contracts.filter((c) => c.status === "sent").length, signed: contracts.filter((c) => c.status === "signed").length };
   const editingContract = editingId ? contracts.find((c) => c.id === editingId) || null : null;
   const viewingContract = viewingId ? contracts.find((c) => c.id === viewingId) || null : null;
+  const deleteAgreement = (contract: ContractRecord) => {
+    if (window.confirm(`Permanently delete "${contract.title}"? This cannot be undone.`)) remove.mutate({ id: contract.id });
+  };
   return <div className="page-content">
     <PageHeader title="Contracts" subtitle="Send web design agreements for electronic signature" action="New Agreement" onAction={() => { setEditingId(null); setFormOpen(true); }} />
     <section className="metric-grid">
@@ -691,11 +696,11 @@ function ContractsPage() {
         <td className="value-cell">KES {Number(c.fields.totalCost || 0).toLocaleString("en-KE")}</td>
         <td><ContractStatusBadge status={c.status} /></td>
         <td>{new Date(c.createdAt).toLocaleDateString("en-KE")}</td>
-        <td onClick={(event) => event.stopPropagation()}><div className="record-actions"><button className="record-edit" onClick={() => setViewingId(c.id)}><FileText />View</button>{c.status === "draft" && <button className="record-edit" onClick={() => { setEditingId(c.id); setFormOpen(true); }}><Pencil />Edit</button>}</div></td>
+        <td onClick={(event) => event.stopPropagation()}><div className="record-actions"><button className="record-edit" onClick={() => setViewingId(c.id)}><FileText />View</button>{c.status === "draft" && <button className="record-edit" onClick={() => { setEditingId(c.id); setFormOpen(true); }}><Pencil />Edit</button>}<button className="record-edit contract-delete-button" onClick={() => deleteAgreement(c)}><Trash2 />Delete</button></div></td>
       </tr>)}</tbody>
     </table></div></div>
     <ContractFormDialog open={formOpen} initial={editingContract ? contractToForm(editingContract) : emptyContractForm()} submitting={create.isPending || update.isPending} onClose={() => { setFormOpen(false); setEditingId(null); }} onSubmit={(form) => { const payload = contractFormToInput(form); if (editingId) update.mutate({ id: editingId, ...payload }); else create.mutate(payload); }} />
-    <ContractViewDialog contract={viewingContract} onClose={() => setViewingId(null)} />
+    <ContractViewDialog contract={viewingContract} onClose={() => setViewingId(null)} onDelete={deleteAgreement} deleting={remove.isPending} />
   </div>;
 }
 

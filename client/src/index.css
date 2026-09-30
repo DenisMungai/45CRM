@@ -579,6 +579,7 @@ button { border: 0; }
 .contract-actions-row button.primary { color: #fff; border-color: rgba(255,189,189,.24); background: linear-gradient(135deg, rgba(198,70,72,.93), rgba(149,42,45,.84)); }
 .contract-actions-row button:disabled { cursor: not-allowed; opacity: .45; }
 .contract-actions-row svg { width: 12px; height: 12px; }
+.contract-actions-row button.contract-delete-button, .record-actions button.contract-delete-button { color: #ffbdbd; border-color: rgba(217,120,121,.4); }
 .contract-link-box { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; background: rgba(0,0,0,.2); color: #b9d6ff; font-size: 9px; overflow: hidden; }
 .contract-link-box span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .contract-link-box button { flex: 0 0 auto; }

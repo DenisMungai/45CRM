@@ -174,6 +174,10 @@ export async function voidContract(workspaceId: string, id: string) {
   return getDb().update(contracts).set({ status: "voided", updatedAt: new Date() }).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
 }
 
+export async function deleteContract(workspaceId: string, id: string) {
+  return getDb().delete(contracts).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
+}
+
 export async function signContractAsProvider(workspaceId: string, id: string, signatureName: string) {
   return getDb().update(contracts).set({ providerSignatureName: signatureName, providerSignedAt: new Date(), updatedAt: new Date() }).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
 }

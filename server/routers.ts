@@ -235,6 +235,13 @@ export const appRouter = router({
       if (existing.documensoEnvelopeId && existing.documensoStatus === "pending") await cancelDocumensoEnvelope(existing.documensoEnvelopeId, "The underlying agreement was withdrawn.");
       return contractsDb.voidContract(ctx.user.workspaceId, input.id);
     }),
+    delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const existing = await contractsDb.getContract(ctx.user.workspaceId, input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Agreement not found." });
+      if (existing.documensoEnvelopeId && existing.documensoStatus === "pending") await cancelDocumensoEnvelope(existing.documensoEnvelopeId, "The underlying agreement was deleted.");
+      await contractsDb.deleteContract(ctx.user.workspaceId, input.id);
+      return { success: true as const };
+    }),
     signProvider: protectedProcedure.input(z.object({ id: z.string().uuid(), signatureName: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => {
       const existing = await contractsDb.getContract(ctx.user.workspaceId, input.id);
       requireOpenContract(existing);
