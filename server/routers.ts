@@ -269,7 +269,11 @@ export const appRouter = router({
       } else if (input.channel === "whatsapp") {
         if (isWhatsAppCloudConfigured()) {
           try {
-            const sendResult = await sendWhatsAppMessage(contract.clientPhone!, message);
+            const sendResult = await sendWhatsAppMessage(contract.clientPhone!, message, ENV.whatsappAgreementTemplateName ? {
+              templateName: ENV.whatsappAgreementTemplateName,
+              languageCode: ENV.whatsappTemplateLanguage,
+              templateParameters: [contract.clientName, projectName, signingUrl],
+            } : undefined);
             whatsappMessageId = sendResult.providerId;
             await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw), {
               messageId: whatsappMessageId,
@@ -400,6 +404,8 @@ export const appRouter = router({
       businessAccountId: ENV.whatsappBusinessAccountId || null,
       webhookUrl: ENV.whatsappWebhookUrl || `${ENV.appUrl}/api/webhooks/whatsapp`,
       verifyTokenConfigured: Boolean(ENV.whatsappVerifyToken),
+      webhookSignatureConfigured: Boolean(ENV.whatsappAppSecret),
+      agreementTemplateConfigured: Boolean(ENV.whatsappAgreementTemplateName),
     })),
     listByContract: protectedProcedure
       .input(z.object({ contractId: z.string().uuid() }))

@@ -22,7 +22,12 @@ import { handleWhatsAppWebhookVerification, handleWhatsAppWebhookEvent } from ".
 const app = express();
 const server = createServer(app);
 app.disable("x-powered-by");
-app.use(express.json({ limit: "3mb" }));
+app.use(express.json({
+  limit: "3mb",
+  verify: (req, _res, body) => {
+    (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(body);
+  },
+}));
 app.use(cookieParser());
 app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads"), { maxAge: "7d", immutable: true }));
 

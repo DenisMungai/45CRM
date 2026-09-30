@@ -1,6 +1,6 @@
 import { and, desc, eq, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { contracts, whatsappMessages, clients, leads, workspaces } from "../drizzle/schema";
+import { contracts, whatsappMessages, clients, leads } from "../drizzle/schema";
 
 export function normalizePhoneNumber(phone: string): string {
   // Strip non-digits
@@ -169,7 +169,5 @@ export async function findClientOrLeadByPhone(rawPhone: string) {
     return { type: "lead" as const, lead: leadMatch, workspaceId: leadMatch.workspaceId };
   }
 
-  // Default fallback workspace if none found
-  const defaultWs = await db.select().from(workspaces).limit(1).then((r) => r[0]);
-  return { type: "unknown" as const, workspaceId: defaultWs?.id || null };
+  return { type: "unknown" as const, workspaceId: null };
 }

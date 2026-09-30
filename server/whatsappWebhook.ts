@@ -1,7 +1,17 @@
 import type { Request, Response } from "express";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { ENV } from "./_core/env";
 import * as waDb from "./whatsappDb";
 import { appendDashboardActivity } from "./db";
+
+export function verifyWhatsAppWebhookSignature(rawBody: Buffer | undefined, signature: string | undefined) {
+  const appSecret = process.env.WHATSAPP_APP_SECRET || ENV.whatsappAppSecret;
+  if (!appSecret || !rawBody || !signature || !/^sha256=[a-f0-9]{64}$/i.test(signature)) return false;
+
+  const expected = Buffer.from(`sha256=${createHmac("sha256", appSecret).update(rawBody).digest("hex")}`);
+  const received = Buffer.from(signature);
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
 
 /**
  * Handles Meta WhatsApp Cloud API Webhook Verification (GET).
@@ -32,6 +42,14 @@ export async function handleWhatsAppWebhookVerification(req: Request, res: Respo
  * and incoming customer replies.
  */
 export async function handleWhatsAppWebhookEvent(req: Request, res: Response) {
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  if (!verifyWhatsAppWebhookSignature(rawBody, req.get("x-hub-signature-256"))) {
+    if (!(process.env.WHATSAPP_APP_SECRET || ENV.whatsappAppSecret)) {
+      return res.status(503).json({ error: "WhatsApp webhook signature verification is not configured." });
+    }
+    return res.status(401).json({ error: "Invalid WhatsApp webhook signature." });
+  }
+
   try {
     const body = req.body;
 

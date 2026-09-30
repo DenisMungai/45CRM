@@ -42,6 +42,32 @@ export interface SendWhatsAppResult {
   raw: any;
 }
 
+export function buildWhatsAppPayload(
+  to: string,
+  message: string,
+  options?: { templateName?: string; languageCode?: string; templateParameters?: string[] }
+) {
+  const recipient = { messaging_product: "whatsapp", recipient_type: "individual", to };
+  if (options?.templateName) {
+    return {
+      ...recipient,
+      type: "template",
+      template: {
+        name: options.templateName,
+        language: { code: options.languageCode || "en" },
+        ...(options.templateParameters?.length
+          ? { components: [{ type: "body", parameters: options.templateParameters.map((text) => ({ type: "text", text })) }] }
+          : {}),
+      },
+    };
+  }
+  return {
+    ...recipient,
+    type: "text",
+    text: { body: message, preview_url: true },
+  };
+}
+
 /**
  * Sends a WhatsApp message via the Meta WhatsApp Cloud API.
  * Uses v20.0 of the Graph API.
@@ -49,7 +75,7 @@ export interface SendWhatsAppResult {
 export async function sendWhatsAppMessage(
   phone: string,
   message: string,
-  options?: { templateName?: string; languageCode?: string }
+  options?: { templateName?: string; languageCode?: string; templateParameters?: string[] }
 ): Promise<SendWhatsAppResult> {
   const token = ENV.whatsappAccessToken || ENV.whatsappToken;
   if (!isWhatsAppCloudConfigured() || !token) {
@@ -63,13 +89,7 @@ export async function sendWhatsAppMessage(
     throw new Error(`Invalid recipient phone number: ${phone}`);
   }
 
-  const payload: Record<string, any> = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to,
-    type: "text",
-    text: { body: message, preview_url: true },
-  };
+  const payload = buildWhatsAppPayload(to, message, options);
 
   const response = await fetch(
     `https://graph.facebook.com/v20.0/${ENV.whatsappPhoneNumberId}/messages`,

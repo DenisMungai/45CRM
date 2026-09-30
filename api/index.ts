@@ -41,7 +41,12 @@ import {
 
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json({ limit: "3mb" }));
+app.use(express.json({
+  limit: "3mb",
+  verify: (req, _res, body) => {
+    (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(body);
+  },
+}));
 app.use(cookieParser());
 
 // Serve uploaded files (avatars, etc.) — /tmp on Vercel, so warn if missing

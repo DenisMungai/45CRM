@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { createHmac } from "node:crypto";
 import * as db from "./db";
 import * as waDb from "./whatsappDb";
 import {
@@ -7,13 +8,44 @@ import {
 import {
   buildWhatsAppLink,
   buildAgreementWhatsAppMessage,
+  buildWhatsAppPayload,
   isWhatsAppCloudConfigured,
 } from "./whatsappDelivery";
 import {
   handleWhatsAppWebhookVerification,
   handleWhatsAppWebhookEvent,
+  verifyWhatsAppWebhookSignature,
 } from "./whatsappWebhook";
 import type { Request, Response } from "express";
+
+const testWhatsAppAppSecret = "test_whatsapp_app_secret";
+
+function signedWhatsAppRequest(request: { body: unknown }) {
+  process.env.WHATSAPP_APP_SECRET = testWhatsAppAppSecret;
+  const rawBody = Buffer.from(JSON.stringify(request.body));
+  const signature = `sha256=${createHmac("sha256", testWhatsAppAppSecret).update(rawBody).digest("hex")}`;
+  return {
+    ...request,
+    rawBody,
+    get: (name: string) => name.toLowerCase() === "x-hub-signature-256" ? signature : undefined,
+  } as unknown as Request;
+}
+
+describe("WhatsApp Webhook Signature Verification", () => {
+  it("accepts a valid Meta HMAC signature", () => {
+    const rawBody = Buffer.from('{"object":"whatsapp_business_account"}');
+    const signature = `sha256=${createHmac("sha256", testWhatsAppAppSecret).update(rawBody).digest("hex")}`;
+    process.env.WHATSAPP_APP_SECRET = testWhatsAppAppSecret;
+
+    expect(verifyWhatsAppWebhookSignature(rawBody, signature)).toBe(true);
+  });
+
+  it("rejects missing or invalid signatures", () => {
+    process.env.WHATSAPP_APP_SECRET = testWhatsAppAppSecret;
+    expect(verifyWhatsAppWebhookSignature(Buffer.from("{}"), undefined)).toBe(false);
+    expect(verifyWhatsAppWebhookSignature(Buffer.from("{}"), "sha256=invalid")).toBe(false);
+  });
+});
 
 describe("WhatsApp Phone Normalization & Message Formatting", () => {
   it("normalizes Kenyan 07... numbers to 2547...", () => {
@@ -29,6 +61,28 @@ describe("WhatsApp Phone Normalization & Message Formatting", () => {
   it("builds correct wa.me link with encoded message", () => {
     const link = buildWhatsAppLink("0712345678", "Hello world");
     expect(link).toBe("https://wa.me/254712345678?text=Hello%20world");
+  });
+
+  it("builds an approved template payload with ordered agreement parameters", () => {
+    expect(buildWhatsAppPayload("254712345678", "unused text", {
+      templateName: "agreement_ready",
+      languageCode: "en",
+      templateParameters: ["Jane Doe", "Portfolio site", "https://example.com/sign/token"],
+    })).toEqual({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: "254712345678",
+      type: "template",
+      template: {
+        name: "agreement_ready",
+        language: { code: "en" },
+        components: [{ type: "body", parameters: [
+          { type: "text", text: "Jane Doe" },
+          { type: "text", text: "Portfolio site" },
+          { type: "text", text: "https://example.com/sign/token" },
+        ] }],
+      },
+    });
   });
 
   it("builds professional agreement delivery message with 45Creatives branding", () => {
@@ -132,9 +186,7 @@ describe("WhatsApp Webhook Verification (GET)", () => {
 
 describe("WhatsApp Webhook Event Handling (POST)", () => {
   it("gracefully ignores non-whatsapp webhook payloads with 200 OK", async () => {
-    const req = {
-      body: { object: "page" },
-    } as unknown as Request;
+    const req = signedWhatsAppRequest({ body: { object: "page" } });
 
     let sentStatus = 0;
     let sentJson: any = null;
@@ -159,7 +211,7 @@ describe("WhatsApp Webhook Event Handling (POST)", () => {
     vi.spyOn(waDb, "updateWhatsAppMessageStatus").mockResolvedValueOnce({} as any);
     vi.spyOn(waDb, "findContractByWhatsAppMessageId").mockResolvedValueOnce(null);
 
-    const req = {
+    const req = signedWhatsAppRequest({
       body: {
         object: "whatsapp_business_account",
         entry: [
@@ -184,7 +236,7 @@ describe("WhatsApp Webhook Event Handling (POST)", () => {
           },
         ],
       },
-    } as unknown as Request;
+    });
 
     let sentStatus = 0;
     let sentJson: any = null;
@@ -214,7 +266,7 @@ describe("WhatsApp Webhook Event Handling (POST)", () => {
       workspaceId: "ws-uuid-1",
     });
 
-    const req = {
+    const req = signedWhatsAppRequest({
       body: {
         object: "whatsapp_business_account",
         entry: [
@@ -240,7 +292,7 @@ describe("WhatsApp Webhook Event Handling (POST)", () => {
           },
         ],
       },
-    } as unknown as Request;
+    });
 
     let sentStatus = 0;
     let sentJson: any = null;
