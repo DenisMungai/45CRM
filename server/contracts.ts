@@ -88,15 +88,15 @@ export function renderContractText(fields: ContractFields, provider: Party, clie
   return [heading.toUpperCase(), "", ...sections.flatMap((s) => [s.heading, ...s.body, ""])].join("\n").trim();
 }
 
-export function renderContractHtml(fields: ContractFields, provider: Party, client: Party, title: string, signatures?: { providerName?: string | null; providerSignedAt?: Date | null; clientName?: string | null; clientSignedAt?: Date | null; clientSignatureImageUrl?: string | null }) {
+export function renderContractHtml(fields: ContractFields, provider: Party, client: Party, title: string, signatures?: { providerName?: string | null; providerSignedAt?: Date | null; providerSignatureImageUrl?: string | null; clientName?: string | null; clientSignedAt?: Date | null; clientSignatureImageUrl?: string | null }) {
   const { sections, title: heading } = buildContractSections(fields, provider, client, title);
   const body = sections.map((s) => `<section><h2>${esc(s.heading)}</h2>${s.body.map((line) => `<p>${esc(line)}</p>`).join("")}</section>`).join("");
   const partyBlock = (label: string, signedName?: string | null, signedAt?: Date | null, signatureImageUrl?: string | null) => signedName
     ? `<div class="sig-row sig-signed"><strong>${esc(label)}</strong>${signatureImageUrl ? `<img src="${signatureImageUrl}" alt="${esc(label)} signature" class="sig-image" />` : `<span class="sig-name">${esc(signedName)}</span>`}<span class="sig-meta">Signed by ${esc(signedName)}${signedAt ? ` on ${new Date(signedAt).toLocaleString()}` : ""}</span></div>`
     : `<div class="sig-row sig-pending"><strong>${esc(label)}</strong><span class="sig-line" aria-hidden="true"></span><span class="sig-meta">Name: ___________________________&nbsp;&nbsp;&nbsp;Date: ______________</span></div>`;
   const signBlock = `<section class="signatures"><h2>Signatures</h2>
-    ${partyBlock("Service Provider", signatures?.providerName, signatures?.providerSignedAt)}
-    ${partyBlock("Client", signatures?.clientName, signatures?.clientSignedAt, signatures?.clientSignatureImageUrl)}
+    ${partyBlock(provider.name, signatures?.providerName, signatures?.providerSignedAt, signatures?.providerSignatureImageUrl)}
+    ${partyBlock(client.name, signatures?.clientName, signatures?.clientSignedAt, signatures?.clientSignatureImageUrl)}
   </section>`;
   return `<article class="contract-document"><h1>${esc(heading)}</h1>${body}${signBlock}</article>`;
 }
@@ -123,15 +123,8 @@ export async function createContract(workspaceId: string, userId: string, input:
 }
 
 export async function updateContract(workspaceId: string, id: string, input: { clientId?: string | null; projectId?: string | null; title: string; providerName: string; providerEmail?: string | null; providerPhone?: string | null; clientName: string; clientEmail?: string | null; clientPhone?: string | null; fields: ContractFields }) {
-  const existing = await getContract(workspaceId, id);
   const documentText = renderContractText(input.fields, { name: input.providerName, email: input.providerEmail, phone: input.providerPhone }, { name: input.clientName, email: input.clientEmail, phone: input.clientPhone }, input.title);
-  const documentHtml = renderContractHtml(input.fields, { name: input.providerName, email: input.providerEmail, phone: input.providerPhone }, { name: input.clientName, email: input.clientEmail, phone: input.clientPhone }, input.title, {
-    providerName: existing?.providerSignatureName ?? null,
-    providerSignedAt: existing?.providerSignedAt ?? null,
-    clientName: existing?.clientSignatureName ?? null,
-    clientSignedAt: existing?.clientSignedAt ?? null,
-    clientSignatureImageUrl: existing?.clientSignatureImageUrl ?? null,
-  });
+  const documentHtml = renderContractHtml(input.fields, { name: input.providerName, email: input.providerEmail, phone: input.providerPhone }, { name: input.clientName, email: input.clientEmail, phone: input.clientPhone }, input.title);
   return getDb().update(contracts).set({
     clientId: input.clientId || null,
     projectId: input.projectId || null,
@@ -152,6 +145,7 @@ export async function updateContract(workspaceId: string, id: string, input: { c
     sentAt: null,
     expiresAt: null,
     providerSignatureName: null,
+    providerSignatureImageUrl: null,
     providerSignedAt: null,
     whatsappMessageId: null,
     whatsappDeliveryStatus: null,
@@ -178,8 +172,19 @@ export async function deleteContract(workspaceId: string, id: string) {
   return getDb().delete(contracts).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
 }
 
-export async function signContractAsProvider(workspaceId: string, id: string, signatureName: string) {
-  return getDb().update(contracts).set({ providerSignatureName: signatureName, providerSignedAt: new Date(), updatedAt: new Date() }).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
+export async function signContractAsProvider(workspaceId: string, id: string, signatureName: string, signatureImageUrl: string) {
+  const existing = await getContract(workspaceId, id);
+  if (!existing) return undefined;
+  const signedAt = new Date();
+  const documentHtml = renderContractHtml(existing.fields as ContractFields, { name: existing.providerName, email: existing.providerEmail, phone: existing.providerPhone }, { name: existing.clientName, email: existing.clientEmail, phone: existing.clientPhone }, existing.title, {
+    providerName: signatureName,
+    providerSignedAt: signedAt,
+    providerSignatureImageUrl: signatureImageUrl,
+    clientName: existing.clientSignatureName,
+    clientSignedAt: existing.clientSignedAt,
+    clientSignatureImageUrl: existing.clientSignatureImageUrl,
+  });
+  return getDb().update(contracts).set({ providerSignatureName: signatureName, providerSignatureImageUrl: signatureImageUrl, providerSignedAt: signedAt, documentHtml, updatedAt: signedAt }).where(and(eq(contracts.workspaceId, workspaceId), eq(contracts.id, id))).returning().then((r) => r[0]);
 }
 
 export async function markContractSent(
@@ -224,6 +229,7 @@ export async function signContractAsClient(id: string, input: { signatureName: s
   const documentHtml = renderContractHtml(fields, { name: documentHtmlRow.providerName, email: documentHtmlRow.providerEmail, phone: documentHtmlRow.providerPhone }, { name: documentHtmlRow.clientName, email: documentHtmlRow.clientEmail, phone: documentHtmlRow.clientPhone }, documentHtmlRow.title, {
     providerName: documentHtmlRow.providerSignatureName,
     providerSignedAt: documentHtmlRow.providerSignedAt,
+    providerSignatureImageUrl: documentHtmlRow.providerSignatureImageUrl,
     clientName: input.signatureName,
     clientSignedAt: signedAt,
     clientSignatureImageUrl: input.signatureImageUrl,

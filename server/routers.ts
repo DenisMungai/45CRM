@@ -82,7 +82,7 @@ async function buildContractPdfAttachment(contract: NonNullable<ContractRow>) {
     { name: contract.providerName, email: contract.providerEmail, phone: contract.providerPhone },
     { name: contract.clientName, email: contract.clientEmail, phone: contract.clientPhone },
     contract.title,
-    { providerName: contract.providerSignatureName, providerSignedAt: contract.providerSignedAt, clientName: contract.clientSignatureName, clientSignedAt: contract.clientSignedAt, clientSignatureImageUrl: contract.clientSignatureImageUrl },
+    { providerName: contract.providerSignatureName, providerSignedAt: contract.providerSignedAt, providerSignatureImageUrl: contract.providerSignatureImageUrl, clientName: contract.clientSignatureName, clientSignedAt: contract.clientSignedAt, clientSignatureImageUrl: contract.clientSignatureImageUrl },
   );
   const safeName = contract.title.replace(/[^a-z0-9-_ ]/gi, "").trim().slice(0, 80) || "agreement";
   return { filename: `${safeName}.pdf`, content: Buffer.from(bytes).toString("base64") };
@@ -242,10 +242,10 @@ export const appRouter = router({
       await contractsDb.deleteContract(ctx.user.workspaceId, input.id);
       return { success: true as const };
     }),
-    signProvider: protectedProcedure.input(z.object({ id: z.string().uuid(), signatureName: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => {
+    signProvider: protectedProcedure.input(z.object({ id: z.string().uuid(), signatureName: z.string().trim().min(1).max(160), signatureImageUrl: z.string().regex(/^data:image\/png;base64,/).max(400_000) })).mutation(async ({ ctx, input }) => {
       const existing = await contractsDb.getContract(ctx.user.workspaceId, input.id);
       requireOpenContract(existing);
-      return contractsDb.signContractAsProvider(ctx.user.workspaceId, input.id, input.signatureName);
+      return contractsDb.signContractAsProvider(ctx.user.workspaceId, input.id, input.signatureName, input.signatureImageUrl);
     }),
     send: protectedProcedure.input(z.object({ id: z.string().uuid(), channel: z.enum(["email", "whatsapp"]) })).mutation(async ({ ctx, input }) => {
       if (hasLocalAppUrl()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "APP_URL points to localhost, which your client cannot open. Set APP_URL to this CRM's public HTTPS address and restart the server before sending." });
@@ -310,11 +310,11 @@ export const appRouter = router({
       const contract = await contractsDb.getContract(ctx.user.workspaceId, input.id);
       if (!contract || contract.status !== "signed") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This agreement has not been signed by both parties yet." });
       const copies = [contract.providerEmail, contract.clientEmail].filter((value): value is string => Boolean(value));
-      const pdf = await buildContractPdfAttachment(contract).catch(() => null);
-      const results = await Promise.allSettled(copies.map((to) => sendEmail({ to, subject: `Signed: ${contract.title}`, html: `<p>Both parties have signed. A copy of the fully executed agreement is attached as a PDF and included below for your records.</p>${contract.documentHtml}`, attachments: pdf ? [pdf] : undefined })));
-      const failed = results.filter((r) => r.status === "rejected").length;
-      if (failed === results.length && results.length > 0) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Unable to email the signed copies. Check RESEND_API_KEY and RESEND_FROM_EMAIL." });
-      return { success: true as const, sent: results.length - failed };
+      if (!copies.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address for at least one party before opening a signed-copy draft." });
+      const subject = `Signed: ${contract.title}`;
+      const body = `Hello,\n\nBoth parties have signed ${contract.title}. Download the signed PDF from the CRM and attach it to this email before sending.\n\nRegards,\n${contract.providerName}`;
+      const gmailDraftUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(copies.join(","))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      return { success: true as const, recipients: copies, gmailDraftUrl };
     }),
   }),
   whatsapp: router({

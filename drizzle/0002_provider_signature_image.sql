@@ -1,0 +1,1 @@
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS provider_signature_image_url text;

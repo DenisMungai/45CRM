@@ -258,6 +258,7 @@ export const contracts = pgTable("contracts", {
   documentText: text("document_text").notNull(),
   documentHtml: text("document_html").notNull(),
   providerSignatureName: varchar("provider_signature_name", { length: 160 }),
+  providerSignatureImageUrl: text("provider_signature_image_url"),
   providerSignedAt: timestamp("provider_signed_at", { withTimezone: true }),
   clientSignatureName: varchar("client_signature_name", { length: 160 }),
   clientSignatureImageUrl: text("client_signature_image_url"),

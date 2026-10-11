@@ -521,16 +521,18 @@ function ContractStatusBadge({ status }: { status: string }) {
 function ContractViewDialog({ contract, onClose, onDelete, deleting }: { contract: ContractRecord | null; onClose: () => void; onDelete: (contract: ContractRecord) => void; deleting: boolean }) {
   const utils = trpc.useUtils();
   const [signatureName, setSignatureName] = useState("");
+  const [providerSignatureImage, setProviderSignatureImage] = useState<string | null>(null);
   const [sending, setSending] = useState<"email" | "whatsapp" | null>(null);
   const composeWindow = useRef<Window | null>(null);
+  const resendWindow = useRef<Window | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [sendResult, setSendResult] = useState<{ channel: "email" | "whatsapp"; signingUrl: string; waLink: string | null; emailDraftUrl: string; deliveryError: string | null; emailConfigured: boolean; whatsappCloudConfigured: boolean; documensoConfigured: boolean; documensoEnvelopeId: string | null; documensoError: string | null } | null>(null);
   const waMessages = trpc.whatsapp.listByContract.useQuery(
     { contractId: contract?.id || "" },
     { enabled: Boolean(contract?.id) }
   );
-  useEffect(() => { setSignatureName(""); setSendResult(null); }, [contract?.id]);
-  const signProvider = trpc.contracts.signProvider.useMutation({ onSuccess: () => { toast.success("You signed the agreement"); utils.contracts.list.invalidate(); utils.contracts.get.invalidate(); }, onError: (error) => toast.error(error.message) });
+  useEffect(() => { setSignatureName(contract?.providerName || ""); setProviderSignatureImage(null); setSendResult(null); }, [contract?.id]);
+  const signProvider = trpc.contracts.signProvider.useMutation({ onSuccess: () => { toast.success("Your drawn signature was added to the agreement"); utils.contracts.list.invalidate(); utils.contracts.get.invalidate(); }, onError: (error) => toast.error(error.message) });
   const send = trpc.contracts.send.useMutation({
     onSuccess: (result) => {
       setSendResult(result);
@@ -544,7 +546,15 @@ function ContractViewDialog({ contract, onClose, onDelete, deleting }: { contrac
     },
     onError: (error) => { toast.error(error.message); setSending(null); },
   });
-  const resendCopies = trpc.contracts.resendSignedCopies.useMutation({ onSuccess: ({ sent }) => toast.success(sent ? `Signed copy emailed to ${sent} recipient${sent === 1 ? "" : "s"}` : "No email recipients on file"), onError: (error) => toast.error(error.message) });
+  const resendCopies = trpc.contracts.resendSignedCopies.useMutation({ onSuccess: async (result) => {
+    if (resendWindow.current) resendWindow.current.location.href = result.gmailDraftUrl;
+    resendWindow.current = null;
+    try {
+      const pdf = await utils.client.contracts.downloadPdf.query({ id: contract.id });
+      downloadBase64Pdf(pdf.content, pdf.filename);
+      toast.success("Gmail draft opened and signed PDF downloaded. Attach the PDF, then send.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Gmail opened, but the signed PDF could not be downloaded."); }
+  }, onError: (error) => { if (resendWindow.current) resendWindow.current.close(); resendWindow.current = null; toast.error(error.message); } });
   const voidMutation = trpc.contracts.void.useMutation({ onSuccess: () => { toast.success("Agreement withdrawn"); utils.contracts.list.invalidate(); onClose(); }, onError: (error) => toast.error(error.message) });
   if (!contract) return null;
   const copy = (value: string) => { navigator.clipboard?.writeText(value).then(() => toast.success("Copied to clipboard")).catch(() => toast.error("Could not copy")); };
@@ -579,7 +589,7 @@ function ContractViewDialog({ contract, onClose, onDelete, deleting }: { contrac
           </span>
         </div>
       )}
-      {!contract.providerSignedAt && contract.status === "draft" && <div className="contract-actions-row"><input value={signatureName} onChange={(e) => setSignatureName(e.target.value)} placeholder="Type your full name to sign" style={{ flex: "1 1 220px", height: 32, padding: "0 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,.14)", background: "rgba(4,6,8,.31)", color: "#eef0ed", fontSize: 9 }} /><button className="primary" disabled={!signatureName.trim() || signProvider.isPending} onClick={() => signProvider.mutate({ id: contract.id, signatureName: signatureName.trim() })}><PenTool />{signProvider.isPending ? "Signing…" : "Sign as provider"}</button></div>}
+      {!contract.providerSignedAt && contract.status === "draft" && <div className="sign-form panel"><h2>Sign as provider</h2><label>Your name<input value={signatureName} onChange={(e) => setSignatureName(e.target.value)} placeholder="Your full legal name" /></label><span className="panel-subtle">Draw your signature below.</span><SignaturePad onChange={setProviderSignatureImage} /><div className="contract-actions-row"><button className="primary" disabled={!signatureName.trim() || !providerSignatureImage || signProvider.isPending} onClick={() => signProvider.mutate({ id: contract.id, signatureName: signatureName.trim(), signatureImageUrl: providerSignatureImage! })}><PenTool />{signProvider.isPending ? "Signing…" : "Sign agreement"}</button></div></div>}
       {contract.providerSignedAt && (contract.status === "draft" || contract.status === "sent") && <div className="contract-actions-row">
         <button disabled={sending !== null} onClick={() => { composeWindow.current = window.open("about:blank", "_blank"); setSending("email"); send.mutate({ id: contract.id, channel: "email" }); }}><Mail />{sending === "email" ? "Preparing..." : "Open Gmail draft"}</button>
         <button disabled={sending !== null} onClick={() => { composeWindow.current = window.open("about:blank", "_blank"); setSending("whatsapp"); send.mutate({ id: contract.id, channel: "whatsapp" }); }}><MessageCircle />{sending === "whatsapp" ? "Preparing..." : "Open WhatsApp"}</button>
@@ -619,7 +629,7 @@ function ContractViewDialog({ contract, onClose, onDelete, deleting }: { contrac
           </div>
         </div>
       )}
-      {contract.status === "signed" && <div className="contract-actions-row"><button disabled={downloading} onClick={downloadPdf}><FileDown />{downloading ? "Preparing…" : "Download PDF"}</button><button disabled={resendCopies.isPending} onClick={() => resendCopies.mutate({ id: contract.id })}><Send />{resendCopies.isPending ? "Sending…" : "Re-email signed copies"}</button></div>}
+      {contract.status === "signed" && <div className="contract-actions-row"><button disabled={downloading} onClick={downloadPdf}><FileDown />{downloading ? "Preparing…" : "Download PDF"}</button><button disabled={resendCopies.isPending} onClick={() => { resendWindow.current = window.open("about:blank", "_blank"); resendCopies.mutate({ id: contract.id }); }}><Send />{resendCopies.isPending ? "Preparing…" : "Prepare signed email"}</button></div>}
       {contract.documensoStatus && <div className="contract-link-box">
         <ShieldCheck size={12} />
         <span>

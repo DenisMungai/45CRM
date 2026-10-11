@@ -6,6 +6,7 @@ type Party = { name: string; email?: string | null; phone?: string | null };
 type Signatures = {
   providerName?: string | null;
   providerSignedAt?: Date | string | null;
+  providerSignatureImageUrl?: string | null;
   clientName?: string | null;
   clientSignedAt?: Date | string | null;
   clientSignatureImageUrl?: string | null;
@@ -102,8 +103,8 @@ export async function renderContractPdf(
     drawText(signedName ? `Signed by ${signedName}${signedAt ? ` on ${new Date(signedAt).toLocaleString()}` : ""}` : "Name: ___________________________   Date: ______________", { size: 8.5, color: rgb(0.4, 0.4, 0.42), gap: 14 });
   }
 
-  await drawSignatureBlock("Service Provider", signatures?.providerName, signatures?.providerSignedAt ? new Date(signatures.providerSignedAt) : null);
-  await drawSignatureBlock("Client", signatures?.clientName, signatures?.clientSignedAt ? new Date(signatures.clientSignedAt) : null, signatures?.clientSignatureImageUrl);
+  await drawSignatureBlock(provider.name, signatures?.providerName, signatures?.providerSignedAt ? new Date(signatures.providerSignedAt) : null, signatures?.providerSignatureImageUrl);
+  await drawSignatureBlock(client.name, signatures?.clientName, signatures?.clientSignedAt ? new Date(signatures.clientSignedAt) : null, signatures?.clientSignatureImageUrl);
 
   return doc.save();
 }
