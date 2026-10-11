@@ -264,99 +264,12 @@ export const appRouter = router({
         signingUrl,
       });
       const waLink = contract.clientPhone ? buildWhatsAppLink(contract.clientPhone, message) : null;
-      let deliveryError: string | null = null;
-      let whatsappMessageId: string | null = null;
-
-      if (input.channel === "email") {
-        try {
-          const pdf = await buildContractPdfAttachment(contract).catch(() => null);
-          await sendEmail({ to: contract.clientEmail!, subject: `Please sign: ${contract.title}`, html: `${contract.documentHtml}<p style="margin-top:18px"><a href="${signingUrl}">Click here to review and sign the agreement</a></p>`, attachments: pdf ? [pdf] : undefined });
-          await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw));
-        } catch (error) { deliveryError = error instanceof Error ? error.message : "Email delivery failed."; }
-      } else if (input.channel === "whatsapp") {
-        if (isWhatsAppCloudConfigured()) {
-          try {
-            const sendResult = await sendWhatsAppMessage(contract.clientPhone!, message, ENV.whatsappAgreementTemplateName ? {
-              templateName: ENV.whatsappAgreementTemplateName,
-              languageCode: ENV.whatsappTemplateLanguage,
-              templateParameters: [contract.clientName, projectName, signingUrl],
-            } : undefined);
-            whatsappMessageId = sendResult.providerId;
-            await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw), {
-              messageId: whatsappMessageId,
-              status: "sent",
-            });
-            await waDb.recordWhatsAppMessage(ctx.user.workspaceId, {
-              clientId: contract.clientId,
-              contractId: contract.id,
-              direction: "outbound",
-              phone: contract.clientPhone!,
-              waMessageId: whatsappMessageId,
-              body: message,
-              status: "sent",
-              metadata: { channel: "whatsapp", signingUrl },
-            });
-            await db.appendDashboardActivity(ctx.user.workspaceId, [
-              {
-                recordId: contract.id,
-                tableName: "contracts",
-                action: "WhatsApp Sent",
-                detail: `Agreement link sent to ${contract.clientName} (${contract.clientPhone}) via WhatsApp Cloud API.`,
-                actorUserId: ctx.user.id,
-              },
-            ]);
-          } catch (error) {
-            deliveryError = error instanceof Error ? error.message : "WhatsApp delivery failed.";
-            await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw), {
-              status: "failed",
-            });
-            await waDb.recordWhatsAppMessage(ctx.user.workspaceId, {
-              clientId: contract.clientId,
-              contractId: contract.id,
-              direction: "outbound",
-              phone: contract.clientPhone!,
-              body: message,
-              status: "failed",
-              errorMessage: deliveryError,
-              metadata: { channel: "whatsapp", signingUrl },
-            }).catch(() => {});
-          }
-        } else {
-          // Cloud API credentials not yet entered - mark sent and prepare one-click wa.me link
-          await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw));
-        }
-      }
-      // Documenso layer: on top of the link above, also send both parties a Documenso envelope of
-      // the same PDF purely to capture a certified, independently auditable e-signature. This is
-      // additive - it never blocks or replaces the app's own signing flow above.
-      let documensoError: string | null = null;
-      let documensoEnvelopeId: string | null = null;
-      if (isDocumensoConfigured()) {
-        if (!contract.providerEmail || !contract.clientEmail) {
-          documensoError = "Add both a provider email and a client email to also collect signatures via Documenso.";
-        } else {
-          try {
-            const pdf = await renderContractPdf(
-              contract.fields as ContractFields,
-              { name: contract.providerName, email: contract.providerEmail, phone: contract.providerPhone },
-              { name: contract.clientName, email: contract.clientEmail, phone: contract.clientPhone },
-              contract.title,
-              { providerName: contract.providerSignatureName, providerSignedAt: contract.providerSignedAt, clientName: contract.clientSignatureName, clientSignedAt: contract.clientSignedAt, clientSignatureImageUrl: contract.clientSignatureImageUrl },
-            );
-            const envelope = await createDocumensoEnvelope({
-              contractId: contract.id,
-              title: contract.title,
-              pdfBytes: pdf,
-              provider: { name: contract.providerName, email: contract.providerEmail },
-              client: { name: contract.clientName, email: contract.clientEmail },
-            });
-            await contractsDb.saveDocumensoEnvelope(ctx.user.workspaceId, contract.id, envelope);
-            documensoEnvelopeId = envelope.envelopeId;
-          } catch (error) { documensoError = error instanceof Error ? error.message : "Documenso delivery failed."; }
-        }
-      }
-      const emailDraftUrl = `mailto:${contract.clientEmail || ""}?subject=${encodeURIComponent(`Please sign: ${contract.title}`)}&body=${encodeURIComponent(`Hi ${contract.clientName},\n\nYour service agreement is ready to review and sign: ${signingUrl}\n\nRegards,\n${contract.providerName}`)}`;
-      return { success: true as const, channel: input.channel, signingUrl, waLink, emailDraftUrl, deliveryError, emailConfigured: isEmailDeliveryConfigured(), whatsappCloudConfigured: isWhatsAppCloudConfigured(), documensoConfigured: isDocumensoConfigured(), documensoEnvelopeId, documensoError };
+      // Prepare a one-time signing link for the user to review and send from their own app.
+      // The link is persisted as sent before returning it, and provider APIs are not invoked.
+      await contractsDb.markContractSent(ctx.user.workspaceId, input.id, hashToken(raw));
+      const emailBody = `Hi ${contract.clientName},\n\nYour service agreement is ready to review and sign: ${signingUrl}\n\nRegards,\n${contract.providerName}`;
+      const emailDraftUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(contract.clientEmail || "")}&su=${encodeURIComponent(`Please sign: ${contract.title}`)}&body=${encodeURIComponent(emailBody)}`;
+      return { success: true as const, channel: input.channel, signingUrl, waLink, emailDraftUrl, deliveryError: null, emailConfigured: false, whatsappCloudConfigured: false, documensoConfigured: false, documensoEnvelopeId: null, documensoError: null };
     }),
     getByToken: publicProcedure.input(z.object({ token: z.string().min(10).max(200) })).query(async ({ input }) => {
       const contract = await contractsDb.findContractByTokenHash(hashToken(input.token));

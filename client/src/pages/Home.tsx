@@ -522,6 +522,7 @@ function ContractViewDialog({ contract, onClose, onDelete, deleting }: { contrac
   const utils = trpc.useUtils();
   const [signatureName, setSignatureName] = useState("");
   const [sending, setSending] = useState<"email" | "whatsapp" | null>(null);
+  const composeWindow = useRef<Window | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [sendResult, setSendResult] = useState<{ channel: "email" | "whatsapp"; signingUrl: string; waLink: string | null; emailDraftUrl: string; deliveryError: string | null; emailConfigured: boolean; whatsappCloudConfigured: boolean; documensoConfigured: boolean; documensoEnvelopeId: string | null; documensoError: string | null } | null>(null);
   const waMessages = trpc.whatsapp.listByContract.useQuery(
@@ -533,16 +534,12 @@ function ContractViewDialog({ contract, onClose, onDelete, deleting }: { contrac
   const send = trpc.contracts.send.useMutation({
     onSuccess: (result) => {
       setSendResult(result);
+      const composeUrl = result.channel === "whatsapp" ? result.waLink : result.emailDraftUrl;
+      if (composeWindow.current && composeUrl) composeWindow.current.location.href = composeUrl;
+      composeWindow.current = null;
       utils.contracts.list.invalidate();
       if (contract?.id) utils.whatsapp.listByContract.invalidate({ contractId: contract.id });
-      if (result.deliveryError) {
-        toast.error(`Link ready, but automatic delivery failed: ${result.deliveryError}`);
-      } else if (result.channel === "whatsapp") {
-        if (result.whatsappCloudConfigured) toast.success("Agreement sent directly to client's WhatsApp");
-        else toast.success("Signing link ready. Open WhatsApp to send it.");
-      } else {
-        toast.success("Agreement sent to the client");
-      }
+      toast.success(result.channel === "whatsapp" ? "WhatsApp is ready. Review and send the message." : "Gmail draft is ready. Review and send the email.");
       setSending(null);
     },
     onError: (error) => { toast.error(error.message); setSending(null); },
@@ -584,20 +581,15 @@ function ContractViewDialog({ contract, onClose, onDelete, deleting }: { contrac
       )}
       {!contract.providerSignedAt && contract.status === "draft" && <div className="contract-actions-row"><input value={signatureName} onChange={(e) => setSignatureName(e.target.value)} placeholder="Type your full name to sign" style={{ flex: "1 1 220px", height: 32, padding: "0 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,.14)", background: "rgba(4,6,8,.31)", color: "#eef0ed", fontSize: 9 }} /><button className="primary" disabled={!signatureName.trim() || signProvider.isPending} onClick={() => signProvider.mutate({ id: contract.id, signatureName: signatureName.trim() })}><PenTool />{signProvider.isPending ? "Signing…" : "Sign as provider"}</button></div>}
       {contract.providerSignedAt && (contract.status === "draft" || contract.status === "sent") && <div className="contract-actions-row">
-        <button disabled={sending !== null} onClick={() => { setSending("email"); send.mutate({ id: contract.id, channel: "email" }); }}><Mail />{sending === "email" ? "Sending…" : "Send by email"}</button>
-        <button disabled={sending !== null} onClick={() => { setSending("whatsapp"); send.mutate({ id: contract.id, channel: "whatsapp" }); }}><MessageCircle />{sending === "whatsapp" ? "Sending…" : "Send via WhatsApp"}</button>
+        <button disabled={sending !== null} onClick={() => { composeWindow.current = window.open("about:blank", "_blank"); setSending("email"); send.mutate({ id: contract.id, channel: "email" }); }}><Mail />{sending === "email" ? "Preparing..." : "Open Gmail draft"}</button>
+        <button disabled={sending !== null} onClick={() => { composeWindow.current = window.open("about:blank", "_blank"); setSending("whatsapp"); send.mutate({ id: contract.id, channel: "whatsapp" }); }}><MessageCircle />{sending === "whatsapp" ? "Preparing..." : "Open WhatsApp"}</button>
         <button onClick={() => voidMutation.mutate({ id: contract.id })}><Trash2 />Withdraw</button>
       </div>}
       {sendResult && <>
         <div className="contract-link-box"><ExternalLink size={12} /><span>{sendResult.signingUrl}</span><button className="text-button" onClick={() => copy(sendResult.signingUrl)}><Copy size={11} />Copy</button></div>
-        {sendResult.waLink && <div className="contract-link-box"><MessageCircle size={12} /><span>{sendResult.whatsappCloudConfigured ? "Sent automatically via WhatsApp Cloud API" : "No WhatsApp API configured - open this link to send from your own WhatsApp"}</span><a className="text-button" href={sendResult.waLink} target="_blank" rel="noreferrer"><ExternalLink size={11} />Open WhatsApp</a></div>}
-        {sendResult.channel === "email" && (sendResult.deliveryError || !sendResult.emailConfigured) && <div className="contract-link-box"><Mail size={12} /><span>{sendResult.deliveryError || "Automatic email is not configured"}</span><a className="text-button" href={sendResult.emailDraftUrl}><ExternalLink size={11} />Open email draft</a></div>}
-        {!sendResult.emailConfigured && <p className="panel-subtle">To enable automatic email delivery, configure RESEND_API_KEY and RESEND_FROM_EMAIL on the server.</p>}
-        {sendResult.documensoConfigured
-          ? sendResult.documensoEnvelopeId
-            ? <div className="contract-link-box"><ShieldCheck size={12} /><span>Certified signature copy sent via Documenso to both of you - check your email.</span></div>
-            : sendResult.documensoError && <p className="panel-subtle">Documenso signature copy not sent: {sendResult.documensoError}</p>
-          : <p className="panel-subtle">Set DOCUMENSO_API_KEY on the server to also collect a certified signature via Documenso.</p>}
+        {sendResult.channel === "whatsapp" && sendResult.waLink && <div className="contract-link-box"><MessageCircle size={12} /><span>WhatsApp message prepared. Review and send it in WhatsApp.</span><a className="text-button" href={sendResult.waLink} target="_blank" rel="noreferrer"><ExternalLink size={11} />Open WhatsApp</a></div>}
+        {sendResult.channel === "email" && <div className="contract-link-box"><Mail size={12} /><span>Gmail draft prepared. Review and send the email.</span><a className="text-button" href={sendResult.emailDraftUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} />Open Gmail</a></div>}
+        <p className="panel-subtle">The draft contains the secure contract signing link. Review it in the opened app and press Send.</p>
       </>}
       {waMessages.data && waMessages.data.length > 0 && (
         <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: "rgba(4,6,8,0.4)", border: "1px solid rgba(255,255,255,0.08)" }}>
