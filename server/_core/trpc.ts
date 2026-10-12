@@ -29,7 +29,9 @@ export async function createContext({ req, res }: { req: Request; res: Response 
   const hash = createHash("sha256").update(token).digest("hex");
   const found = await findSession(hash).catch(() => undefined);
   if (!found || found.session.expiresAt < new Date()) return { req, res, user: null };
-  void touchSession(found.session.id);
+  // Session activity is best-effort; a write failure must not turn every authenticated
+  // API request into an unhandled rejection (or take down a serverless invocation).
+  void touchSession(found.session.id).catch((error) => console.error("Unable to update session activity:", error));
   return { req, res, user: { id: found.user.id, email: found.user.email, name: found.user.name, role: found.membership.role === "owner" ? "admin" : found.membership.role, workspaceId: found.workspace.id, workspaceName: found.workspace.name, providerImageUrl: found.user.providerImageUrl, avatarUrl: found.user.avatarUrl, lastSignedIn: found.user.lastSignedIn } };
 }
 

@@ -129,7 +129,13 @@ export const appRouter = router({
   auth: router({
     me: publicProcedure.query(({ ctx }) => ctx.user),
     logout: publicProcedure.mutation(async ({ ctx }) => { const token = ctx.req.cookies?.[COOKIE_NAME]; if (token) await db.deleteSession(createHash("sha256").update(token).digest("hex")); ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions()); return { success: true as const }; }),
-    profile: protectedProcedure.query(({ ctx }) => ({ displayName: ctx.user.name, email: ctx.user.email, role: ctx.user.role, avatarUrl: ctx.user.avatarUrl, providerImageUrl: ctx.user.providerImageUrl, lastSignedIn: ctx.user.lastSignedIn, bio: null })),
+    profile: protectedProcedure.query(async ({ ctx }) => {
+      // Read the user row for profile data instead of relying on the copy captured when
+      // the session context was created. In particular, login updates lastSignedIn.
+      const user = await db.findUserById(ctx.user.id);
+      if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Please sign in to continue." });
+      return { displayName: user.name, email: user.email, role: ctx.user.role, avatarUrl: user.avatarUrl, providerImageUrl: user.providerImageUrl, lastSignedIn: user.lastSignedIn, bio: null };
+    }),
     updateProfile: protectedProcedure.input(profileInput).mutation(async ({ ctx, input }) => { await db.updateUser(ctx.user.id, { name: input.name }); return { success: true, name: input.name, bio: input.bio ?? null }; }),
     removeAvatar: protectedProcedure.mutation(async ({ ctx }) => { await db.updateUser(ctx.user.id, { avatarUrl: null }); return { success: true as const }; }),
     uploadAvatar: protectedProcedure.input(avatarDataUrlInput).mutation(async ({ ctx, input }) => { const match = /^data:(image\/(png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(input.dataUrl); if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "Upload a PNG, JPEG, or WebP image." }); const bytes = Buffer.from(match[3], "base64"); if (!bytes.length || bytes.length > 2 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Avatar images must be smaller than 2 MB." }); const stored = await storagePut(`profiles/${ctx.user.id}/avatar.${match[2] === "jpeg" ? "jpg" : match[2]}`, bytes, match[1]); await db.updateUser(ctx.user.id, { avatarUrl: stored.url }); return { avatarUrl: stored.url }; }),
