@@ -51,7 +51,13 @@ export async function countWorkspaceAdmins(workspaceId: string) { return getDb()
 export async function createSession(userId: string, workspaceId: string, tokenHash: string, expiresAt: Date) { return getDb().insert((await import("../drizzle/schema.js")).sessions).values({ userId, workspaceId, tokenHash, expiresAt }).returning().then(r => r[0]); }
 export async function findSession(tokenHash: string) { return getDb().select({ session: sessions, user: users, membership: workspaceMembers, workspace: workspaces }).from(sessions).innerJoin(users, eq(users.id, sessions.userId)).innerJoin(workspaceMembers, and(eq(workspaceMembers.userId, users.id), eq(workspaceMembers.workspaceId, sessions.workspaceId))).innerJoin(workspaces, eq(workspaces.id, sessions.workspaceId)).where(and(eq(sessions.tokenHash, tokenHash), eq(workspaceMembers.status, "active"))).limit(1).then(r => r[0]); }
 export async function deleteSession(tokenHash: string) { await getDb().delete(sessions).where(eq(sessions.tokenHash, tokenHash)); }
-export async function touchSession(id: string) { await getDb().update(sessions).set({ lastSeenAt: new Date() }).where(eq(sessions.id, id)); }
+export async function touchSession(id: string, userId?: string, lastSignedIn?: Date | null) {
+  const now = new Date();
+  await getDb().update(sessions).set({ lastSeenAt: now }).where(eq(sessions.id, id));
+  if (userId && (!lastSignedIn || (now.getTime() - new Date(lastSignedIn).getTime() > 15 * 60 * 1000))) {
+    await getDb().update(users).set({ lastSignedIn: now, updatedAt: now }).where(eq(users.id, userId));
+  }
+}
 
 export async function appendDashboardActivity(workspaceId: string, events: { id?: string; recordId: string; tableName: string; action: string; detail: string; actorUserId: string | null }[]) {
   if (!events.length) return;

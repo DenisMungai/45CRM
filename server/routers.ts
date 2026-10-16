@@ -134,7 +134,7 @@ export const appRouter = router({
       // the session context was created. In particular, login updates lastSignedIn.
       const user = await db.findUserById(ctx.user.id);
       if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Please sign in to continue." });
-      return { displayName: user.name, email: user.email, role: ctx.user.role, avatarUrl: user.avatarUrl, providerImageUrl: user.providerImageUrl, lastSignedIn: user.lastSignedIn, bio: null };
+      return { displayName: user.name, email: user.email, role: ctx.user.role, avatarUrl: user.avatarUrl, providerImageUrl: user.providerImageUrl, lastSignedIn: user.lastSignedIn ?? ctx.user.lastSignedIn, bio: null };
     }),
     updateProfile: protectedProcedure.input(profileInput).mutation(async ({ ctx, input }) => { await db.updateUser(ctx.user.id, { name: input.name }); return { success: true, name: input.name, bio: input.bio ?? null }; }),
     removeAvatar: protectedProcedure.mutation(async ({ ctx }) => { await db.updateUser(ctx.user.id, { avatarUrl: null }); return { success: true as const }; }),

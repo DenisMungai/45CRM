@@ -41,7 +41,7 @@ export default function DashboardProfileCard() {
           <div><span>Name</span><strong>{data?.displayName || "Workspace user"}</strong></div>
           <div><span>Email</span><strong>{data?.email || "Not available"}</strong></div>
           <div><span>Role</span><strong><ShieldCheck aria-hidden="true" />{data?.role === "admin" ? "Administrator" : "Team member"}</strong></div>
-          <div><span>Last signed in</span><strong>{formatLastSignedIn(data?.lastSignedIn)}</strong></div>{data?.bio ? <div className="dashboard-profile-bio"><span>Bio</span><strong>{data.bio}</strong></div> : null}
+          <div><span>Last signed in</span><strong>{formatLastSignedIn(data?.lastSignedIn ?? user?.lastSignedIn)}</strong></div>{data?.bio ? <div className="dashboard-profile-bio"><span>Bio</span><strong>{data.bio}</strong></div> : null}
         </div>
       )}
     </section>
