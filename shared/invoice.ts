@@ -109,6 +109,21 @@ export function deriveInvoiceStatus(input: { storedStatus: string; total: number
   return "UNPAID";
 }
 
+/**
+ * The status to store on the `invoices` row so the Invoices list matches the invoice itself.
+ * Payments decide paid / partial; sending moves a draft to sent. A hand-set Paid with no payment
+ * rows, Void and Overdue are left alone.
+ */
+export function nextStoredInvoiceStatus(input: { storedStatus: string; total: number; received: number; sent: boolean }): string {
+  const stored = (input.storedStatus || "draft").toLowerCase();
+  if (stored === "void") return stored;
+  if (input.total > 0 && input.received >= input.total) return "paid";
+  if (input.received > 0) return "partial";
+  if (stored === "partial") return input.sent ? "sent" : "draft";
+  if (stored === "draft" && input.sent) return "sent";
+  return stored;
+}
+
 export type InvoiceBusiness = { name: string; address: string; email: string; phone: string };
 
 export type InvoiceView = {

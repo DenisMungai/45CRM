@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "./db.js";
+import { refreshInvoiceSummary } from "./invoiceDocs.js";
 import { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions } from "../drizzle/schema.js";
 
 export const crmTables = { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions };
@@ -28,6 +29,7 @@ export async function deletePayment(workspaceId: string, id: string) {
   const payment = await getDb().select().from(payments).where(and(eq(payments.workspaceId, workspaceId), eq(payments.id, id))).limit(1).then(r => r[0]);
   await getDb().delete(payments).where(and(eq(payments.workspaceId, workspaceId), eq(payments.id, id)));
   if (payment) await getDb().delete(transactions).where(and(eq(transactions.workspaceId, workspaceId), eq(transactions.reference, payment.number)));
+  if (payment?.invoiceId) await refreshInvoiceSummary(workspaceId, payment.invoiceId);
 }
 export async function deleteInventoryItem(workspaceId: string, id: string) { await getDb().delete(inventoryItems).where(and(eq(inventoryItems.workspaceId, workspaceId), eq(inventoryItems.id, id))); }
 export async function deleteTransaction(workspaceId: string, id: string) { await getDb().delete(transactions).where(and(eq(transactions.workspaceId, workspaceId), eq(transactions.id, id))); }
@@ -55,6 +57,7 @@ export async function upsertInvoice(workspaceId: string, input: Omit<typeof invo
 export async function upsertPayment(workspaceId: string, input: Omit<typeof payments.$inferInsert, "workspaceId">) {
   const payment = await getDb().insert(payments).values({ ...input, workspaceId }).onConflictDoUpdate({ target: payments.id, set: { invoiceId: input.invoiceId, clientId: input.clientId, number: input.number, amount: input.amount, method: input.method, status: input.status, paidAt: input.paidAt }, where: eq(payments.workspaceId, workspaceId) }).returning().then(r => r[0]);
   await syncPaymentTransaction(workspaceId, payment);
+  if (payment.invoiceId) await refreshInvoiceSummary(workspaceId, payment.invoiceId);
   return payment;
 }
 

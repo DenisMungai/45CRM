@@ -13,7 +13,7 @@ export function useInvoiceActions({ invoiceId, hasDocument, onTotalChange }: { i
   const [downloading, setDownloading] = useState(false);
   const [sendResult, setSendResult] = useState<InvoiceSendResult | null>(null);
   const composeWindow = useRef<Window | null>(null);
-  const refresh = () => { utils.invoiceDocs.view.invalidate(); utils.invoiceDocs.list.invalidate(); };
+  const refresh = () => { utils.invoiceDocs.view.invalidate(); utils.invoiceDocs.list.invalidate(); utils.records.list.invalidate(); };
   const save = trpc.invoiceDocs.save.useMutation({
     onSuccess: (result) => { setEditing(false); onTotalChange(result.total); refresh(); toast.success("Invoice details saved"); },
     onError: (error) => toast.error(error.message),

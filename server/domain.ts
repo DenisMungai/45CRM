@@ -1,8 +1,10 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
-import { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions } from "../drizzle/schema.js";
+import { clients, leads, projects, quotes, invoices, invoiceDocuments, payments, inventoryItems, transactions } from "../drizzle/schema.js";
 import { syncPaymentTransaction } from "./crm.js";
+import { refreshInvoiceSummary } from "./invoiceDocs.js";
+import type { InvoiceFields } from "../shared/invoice.js";
 
 type Row = { id: string; tableName: string; recordData: string[] };
 const uuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : randomUUID();
@@ -50,17 +52,30 @@ async function syncQuotes(workspaceId: string, rows: Row[]) {
 }
 async function syncInvoices(workspaceId: string, rows: Row[]) {
   const db = getDb();
-  for (const r of rows) await db.insert(invoices).values({ id: uuid(r.id), workspaceId, number: value(r,0) || `INV-${Date.now()}`, status: status(value(r,5), invoiceStatuses, "draft") as any, total: money(value(r,4)), subtotal: money(value(r,4)), issueDate: date(value(r,2)), dueDate: date(value(r,3)), updatedAt: new Date() }).onConflictDoUpdate({ target: invoices.id, set: { number: value(r,0) || `INV-${Date.now()}`, status: status(value(r,5), invoiceStatuses, "draft") as any, total: money(value(r,4)), subtotal: money(value(r,4)), issueDate: date(value(r,2)), dueDate: date(value(r,3)), updatedAt: new Date() } });
+  for (const r of rows) {
+    // Link the invoice to the client of the same name so the list can show it after a reload.
+    const clientName = clean(value(r,1));
+    const clientId = clientName ? await db.select({ id: clients.id }).from(clients).where(and(eq(clients.workspaceId, workspaceId), eq(clients.name, clientName))).limit(1).then(found => found[0]?.id ?? null) : null;
+    const saved = await db.insert(invoices).values({ id: uuid(r.id), workspaceId, clientId, number: value(r,0) || `INV-${Date.now()}`, status: status(value(r,5), invoiceStatuses, "draft") as any, total: money(value(r,4)), subtotal: money(value(r,4)), issueDate: date(value(r,2)), dueDate: date(value(r,3)), updatedAt: new Date() }).onConflictDoUpdate({ target: invoices.id, set: { clientId, number: value(r,0) || `INV-${Date.now()}`, status: status(value(r,5), invoiceStatuses, "draft") as any, total: money(value(r,4)), subtotal: money(value(r,4)), issueDate: date(value(r,2)), dueDate: date(value(r,3)), updatedAt: new Date() } }).returning({ id: invoices.id }).then(found => found[0]);
+    // The saved invoice details and recorded payments win over whatever total/status the row carried.
+    if (saved) await refreshInvoiceSummary(workspaceId, saved.id);
+  }
 }
 async function syncPayments(workspaceId: string, rows: Row[]) {
   const db = getDb();
+  const touchedInvoices = new Set<string>();
   for (const r of rows) {
+    // A payment moved to another invoice must also refresh the invoice it left.
+    const previous = await db.select({ invoiceId: payments.invoiceId }).from(payments).where(and(eq(payments.workspaceId, workspaceId), eq(payments.id, uuid(r.id)))).limit(1).then(found => found[0]?.invoiceId);
+    if (previous) touchedInvoices.add(previous);
     // Link the payment to its invoice by invoice number so invoices can show payments received.
     const invoiceNumber = clean(value(r,2));
     const invoiceId = invoiceNumber ? await db.select({ id: invoices.id }).from(invoices).where(and(eq(invoices.workspaceId, workspaceId), eq(invoices.number, invoiceNumber))).limit(1).then(found => found[0]?.id ?? null) : null;
     const saved = await db.insert(payments).values({ id: uuid(r.id), workspaceId, invoiceId, number: value(r,0) || `PAY-${Date.now()}`, amount: money(value(r,4)), method: clean(value(r,5)), status: status(value(r,6), paymentStatuses, "completed") as any, paidAt: date(value(r,3)) }).onConflictDoUpdate({ target: payments.id, set: { invoiceId, number: value(r,0) || `PAY-${Date.now()}`, amount: money(value(r,4)), method: clean(value(r,5)), status: status(value(r,6), paymentStatuses, "completed") as any, paidAt: date(value(r,3)) } }).returning().then(rows => rows[0]);
     if (saved) await syncPaymentTransaction(workspaceId, saved);
+    if (invoiceId) touchedInvoices.add(invoiceId);
   }
+  for (const invoiceId of touchedInvoices) await refreshInvoiceSummary(workspaceId, invoiceId);
 }
 async function syncInventory(workspaceId: string, rows: Row[]) {
   const db = getDb();
@@ -99,10 +114,11 @@ export async function deleteDomainRows(workspaceId: string, tableName: string, i
   else if (tableName === "quotes") await db.delete(quotes).where(and(eq(quotes.workspaceId, workspaceId), inArray(quotes.id, validIds)));
   else if (tableName === "invoices") await db.delete(invoices).where(and(eq(invoices.workspaceId, workspaceId), inArray(invoices.id, validIds)));
   else if (tableName === "payments") {
-    const removed = await db.select({ number: payments.number }).from(payments).where(and(eq(payments.workspaceId, workspaceId), inArray(payments.id, validIds)));
+    const removed = await db.select({ number: payments.number, invoiceId: payments.invoiceId }).from(payments).where(and(eq(payments.workspaceId, workspaceId), inArray(payments.id, validIds)));
     await db.delete(payments).where(and(eq(payments.workspaceId, workspaceId), inArray(payments.id, validIds)));
     const refs = removed.map(r => r.number);
     if (refs.length) await db.delete(transactions).where(and(eq(transactions.workspaceId, workspaceId), inArray(transactions.reference, refs)));
+    for (const invoiceId of new Set(removed.map(r => r.invoiceId).filter((id): id is string => Boolean(id)))) await refreshInvoiceSummary(workspaceId, invoiceId);
   }
   else if (tableName === "inventory") await db.delete(inventoryItems).where(and(eq(inventoryItems.workspaceId, workspaceId), inArray(inventoryItems.id, validIds)));
   else if (tableName === "transactions") await db.delete(transactions).where(and(eq(transactions.workspaceId, workspaceId), inArray(transactions.id, validIds)));
@@ -110,19 +126,23 @@ export async function deleteDomainRows(workspaceId: string, tableName: string, i
 
 export async function listDomainRows(workspaceId: string) {
   const db = getDb();
-  const [c,l,p,q,i,pa,inv,t] = await Promise.all([
+  const [c,l,p,q,i,pa,inv,t,docs] = await Promise.all([
     db.select().from(clients).where(eq(clients.workspaceId, workspaceId)), db.select().from(leads).where(eq(leads.workspaceId, workspaceId)),
     db.select().from(projects).where(eq(projects.workspaceId, workspaceId)), db.select().from(quotes).where(eq(quotes.workspaceId, workspaceId)),
     db.select().from(invoices).where(eq(invoices.workspaceId, workspaceId)), db.select().from(payments).where(eq(payments.workspaceId, workspaceId)),
     db.select().from(inventoryItems).where(eq(inventoryItems.workspaceId, workspaceId)), db.select().from(transactions).where(eq(transactions.workspaceId, workspaceId)),
+    db.select({ invoiceId: invoiceDocuments.invoiceId, fields: invoiceDocuments.fields }).from(invoiceDocuments).where(eq(invoiceDocuments.workspaceId, workspaceId)),
   ]);
   const moneyText = (n:number) => `KSh ${n.toLocaleString("en-KE")}`;
+  const clientNames = new Map(c.map(r => [r.id, r.name]));
+  const billedTo = new Map(docs.map(d => [d.invoiceId, (d.fields as Partial<InvoiceFields>)?.clientName || ""]));
+  const invoiceClient = (r: typeof invoices.$inferSelect) => billedTo.get(r.id) || (r.clientId ? clientNames.get(r.clientId) : "") || "";
   return [
     ...c.map(r=>({id:r.id,tableName:"clients",recordData:[r.name,r.name,r.email||"",r.phone||"",moneyText(0),titleCase(r.status),r.status]})),
     ...l.map(r=>({id:r.id,tableName:"leads",recordData:[r.name,r.company||"",r.source||"",moneyText(r.estimatedValue),titleCase(r.status),r.status,"Nadia Rachel"]})),
     ...p.map(r=>({id:r.id,tableName:"projects",recordData:[r.name,"Client",String(r.progress),titleCase(r.status),r.status,r.dueDate?.toLocaleDateString("en-KE")||"",moneyText(r.budget)]})),
     ...q.map(r=>({id:r.id,tableName:"quotes",recordData:[r.number,"Client","Project",moneyText(r.total),titleCase(r.status),r.status,r.validUntil?.toLocaleDateString("en-KE")||""]})),
-    ...i.map(r=>({id:r.id,tableName:"invoices",recordData:[r.number,"Client",r.issueDate.toLocaleDateString("en-KE"),r.dueDate?.toLocaleDateString("en-KE")||"",moneyText(r.total),titleCase(r.status),r.status]})),
+    ...i.map(r=>({id:r.id,tableName:"invoices",recordData:[r.number,invoiceClient(r),r.issueDate.toLocaleDateString("en-KE"),r.dueDate?.toLocaleDateString("en-KE")||"",moneyText(r.total),titleCase(r.status),r.status]})),
     ...pa.map(r=>({id:r.id,tableName:"payments",recordData:[r.number,"Client","Invoice",r.paidAt.toLocaleDateString("en-KE"),moneyText(r.amount),r.method||"",titleCase(r.status),r.status]})),
     ...inv.map(r=>({id:r.id,tableName:"inventory",recordData:[r.name,r.category,r.sku||"",String(r.quantity),moneyText(r.unitCost),moneyText(r.quantity*r.unitCost),r.quantity<=r.reorderLevel?(r.quantity===0?"Out of Stock":"Low Stock"):"In Stock",r.quantity===0?"overdue":r.quantity<=r.reorderLevel?"pending":"active"]})),
     ...t.map(r=>({id:r.id,tableName:"transactions",recordData:[r.transactionDate.toLocaleDateString("en-KE"),r.reference||"",r.description,titleCase(r.type),moneyText(r.amount),r.type==="income"?"positive":"negative"]})),

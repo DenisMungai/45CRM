@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { invoiceDocuments, invoices, payments, workspaces } from "../drizzle/schema.js";
-import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, INVOICE_TERMS, type InvoiceFields } from "../shared/invoice.js";
+import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, INVOICE_TERMS, nextStoredInvoiceStatus, type InvoiceFields } from "../shared/invoice.js";
 import { renderInvoicePdf, pdfSafe } from "./invoicePdf.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -131,5 +131,22 @@ describe("invoice PDF", () => {
     const items = Array.from({ length: 28 }, (_, i) => ({ description: `Line item ${i + 1} with a reasonably long description that wraps onto a second line in the table`, quantity: 1, unitPrice: 1000 }));
     const parsed = await PDFDocument.load(await renderInvoicePdf(make({ items })));
     expect(parsed.getPageCount()).toBeGreaterThan(1);
+  });
+});
+
+describe("stored invoice status", () => {
+  const base = { storedStatus: "draft", total: 40000, received: 0, sent: false };
+  it("moves a draft to sent once it has been sent", () => {
+    expect(nextStoredInvoiceStatus(base)).toBe("draft");
+    expect(nextStoredInvoiceStatus({ ...base, sent: true })).toBe("sent");
+  });
+  it("follows recorded payments", () => {
+    expect(nextStoredInvoiceStatus({ ...base, sent: true, received: 10000 })).toBe("partial");
+    expect(nextStoredInvoiceStatus({ ...base, storedStatus: "sent", received: 40000 })).toBe("paid");
+    expect(nextStoredInvoiceStatus({ ...base, storedStatus: "partial", sent: true })).toBe("sent");
+  });
+  it("keeps void and hand-set paid invoices as they are", () => {
+    expect(nextStoredInvoiceStatus({ ...base, storedStatus: "void", received: 40000 })).toBe("void");
+    expect(nextStoredInvoiceStatus({ ...base, storedStatus: "paid" })).toBe("paid");
   });
 });

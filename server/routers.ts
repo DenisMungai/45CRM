@@ -368,6 +368,7 @@ export const appRouter = router({
       const invoice = await invoiceDocs.getInvoice(ctx.user.workspaceId, input.invoiceId);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found." });
       await invoiceDocs.saveInvoiceDocument(ctx.user.workspaceId, ctx.user.id, input.invoiceId, input.fields);
+      await invoiceDocs.refreshInvoiceSummary(ctx.user.workspaceId, input.invoiceId);
       const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId);
       await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.invoiceId, tableName: "invoices", action: "Details saved", detail: `Invoice details for ${invoice.number} were updated.`, actorUserId: ctx.user.id }]);
       return { success: true as const, total: bundle!.view.totals.total };
@@ -385,6 +386,7 @@ export const appRouter = router({
       const viewUrl = invoiceDocs.invoiceViewUrl(bundle.document);
       const drafts = invoiceDocs.buildInvoiceDrafts(bundle.view, bundle.fields.clientEmail, bundle.fields.clientPhone, viewUrl);
       const updated = await invoiceDocs.markInvoiceDocumentSent(bundle.document.id, input.channel);
+      await invoiceDocs.refreshInvoiceSummary(ctx.user.workspaceId, input.invoiceId);
       await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.invoiceId, tableName: "invoices", action: "Sent", detail: `Invoice ${bundle.invoice.number} prepared for ${bundle.fields.clientName} by ${input.channel === "email" ? "email" : "WhatsApp"}.`, actorUserId: ctx.user.id }]);
       return { success: true as const, channel: input.channel, viewUrl, waLink: drafts.waLink, emailDraftUrl: drafts.emailDraftUrl, sentAt: updated?.sentAt ?? new Date() };
     }),

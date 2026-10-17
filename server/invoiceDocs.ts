@@ -5,7 +5,7 @@ import { clients, invoiceDocuments, invoices, payments, workspaces } from "../dr
 import { ENV } from "./_core/env.js";
 import { buildWhatsAppLink } from "./whatsappDelivery.js";
 import {
-  buildInvoiceView, defaultInvoiceFields, formatInvoiceMoney, paymentInstructionKeys,
+  buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, formatInvoiceMoney, nextStoredInvoiceStatus, paymentInstructionKeys,
   type InvoiceFields, type InvoiceView,
 } from "../shared/invoice.js";
 
@@ -99,6 +99,26 @@ export async function saveInvoiceDocument(workspaceId: string, userId: string, i
 
 export async function markInvoiceDocumentSent(id: string, channel: "email" | "whatsapp") {
   return getDb().update(invoiceDocuments).set({ sentAt: new Date(), lastSentChannel: channel, updatedAt: new Date() }).where(eq(invoiceDocuments.id, id)).returning().then((r) => r[0]);
+}
+
+/**
+ * Writes the invoice template's total, the completed payments and the resulting status back onto
+ * the `invoices` row, which is what the Invoices list, dashboard and reports read. Call it after
+ * anything that changes the details, the send state or the payments of an invoice.
+ */
+export async function refreshInvoiceSummary(workspaceId: string, invoiceId: string) {
+  const [invoice, document, paid] = await Promise.all([
+    getInvoice(workspaceId, invoiceId),
+    getInvoiceDocument(workspaceId, invoiceId),
+    getDb().select({ amount: payments.amount }).from(payments).where(and(eq(payments.workspaceId, workspaceId), eq(payments.invoiceId, invoiceId), eq(payments.status, "completed"))),
+  ]);
+  if (!invoice) return;
+  const fields = document ? withDefaults(document.fields as Partial<InvoiceFields>) : null;
+  const total = fields ? computeInvoiceTotals(fields.items, fields.discount).total : invoice.total;
+  const received = paid.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const status = nextStoredInvoiceStatus({ storedStatus: invoice.status, total, received, sent: Boolean(document?.sentAt) }) as InvoiceRow["status"];
+  if (total === invoice.total && received === invoice.amountPaid && status === invoice.status) return;
+  await getDb().update(invoices).set({ total, subtotal: total, amountPaid: received, status, updatedAt: new Date() }).where(and(eq(invoices.workspaceId, workspaceId), eq(invoices.id, invoiceId)));
 }
 
 // --- Share links -------------------------------------------------------------------------------
