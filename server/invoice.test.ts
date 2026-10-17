@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { invoiceDocuments, invoices, payments, workspaces } from "../drizzle/schema.js";
-import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, INVOICE_TERMS, nextStoredInvoiceStatus, type InvoiceFields } from "../shared/invoice.js";
+import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, INVOICE_TERMS, INVOICE_TERMS_EMPHASIS, invoiceTermRuns, nextInvoiceNumberFrom, nextStoredInvoiceStatus, type InvoiceFields } from "../shared/invoice.js";
 import { renderInvoicePdf, pdfSafe } from "./invoicePdf.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -148,5 +148,22 @@ describe("stored invoice status", () => {
   it("keeps void and hand-set paid invoices as they are", () => {
     expect(nextStoredInvoiceStatus({ ...base, storedStatus: "void", received: 40000 })).toBe("void");
     expect(nextStoredInvoiceStatus({ ...base, storedStatus: "paid" })).toBe("paid");
+  });
+});
+
+describe("invoice numbering", () => {
+  it("continues the 45C-INV sequence from the highest number used", () => {
+    expect(nextInvoiceNumberFrom([])).toBe("45C-INV-0001");
+    expect(nextInvoiceNumberFrom(["45C-INV-0002", "45C-INV-0010", "INV-2025-105", ""])).toBe("45C-INV-0011");
+    expect(nextInvoiceNumberFrom(["45C-INV-9999"])).toBe("45C-INV-10000");
+  });
+});
+
+describe("terms emphasis", () => {
+  it("bolds the deposit sentence of the first term, as in the template", () => {
+    const runs = invoiceTermRuns(INVOICE_TERMS[0]);
+    expect(runs.filter((run) => run.bold).map((run) => run.text)).toEqual([INVOICE_TERMS_EMPHASIS]);
+    expect(runs.map((run) => run.text).join("")).toBe(INVOICE_TERMS[0]);
+    expect(invoiceTermRuns(INVOICE_TERMS[1])).toEqual([{ text: INVOICE_TERMS[1], bold: false }]);
   });
 });

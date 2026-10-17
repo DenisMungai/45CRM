@@ -356,17 +356,31 @@ export const appRouter = router({
   }),
   invoiceDocs: router({
     list: protectedProcedure.query(({ ctx }) => invoiceDocs.listInvoiceDocuments(ctx.user.workspaceId)),
+    summaries: protectedProcedure.query(({ ctx }) => invoiceDocs.listInvoiceSummaries(ctx.user.workspaceId)),
     defaults: protectedProcedure.query(({ ctx }) => invoiceDocs.latestPaymentInstructions(ctx.user.workspaceId)),
+    // Preview only: the real number is assigned by `create`, so it can differ if someone else creates one first.
+    nextNumber: protectedProcedure.query(({ ctx }) => invoiceDocs.nextInvoiceNumber(ctx.user.workspaceId)),
+    create: protectedProcedure.input(z.object({ fields: invoiceFieldsInput, issueDate: z.coerce.date(), dueDate: z.coerce.date() })).mutation(async ({ ctx, input }) => {
+      if (input.dueDate < input.issueDate) throw new TRPCError({ code: "BAD_REQUEST", message: "The due date cannot be before the issue date." });
+      const invoice = await invoiceDocs.createInvoiceWithDocument(ctx.user.workspaceId, ctx.user.id, input);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: invoice.id, tableName: "invoices", action: "Created", detail: `Invoice ${invoice.number} created for ${input.fields.clientName}.`, actorUserId: ctx.user.id }]);
+      return { invoiceId: invoice.id, number: invoice.number, total: invoice.total, issueDate: invoice.issueDate, dueDate: invoice.dueDate };
+    }),
     // Everything the invoice sheet needs: the rendered view, the editable fields (defaults when the
     // invoice has no saved details yet) and send tracking.
     view: protectedProcedure.input(z.object({ invoiceId: z.string().uuid(), clientName: z.string().max(180).optional() })).query(async ({ ctx, input }) => {
       const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId, input.clientName);
       if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This invoice has not synced to the workspace database yet. Give it a moment and try again." });
-      return { view: bundle.view, fields: bundle.fields, hasDocument: Boolean(bundle.document), sentAt: bundle.document?.sentAt ?? null, lastSentChannel: bundle.document?.lastSentChannel ?? null };
+      return { view: bundle.view, fields: bundle.fields, hasDocument: Boolean(bundle.document), sentAt: bundle.document?.sentAt ?? null, lastSentChannel: bundle.document?.lastSentChannel ?? null, issueDate: bundle.invoice.issueDate, dueDate: bundle.invoice.dueDate, voided: bundle.invoice.status === "void" };
     }),
-    save: protectedProcedure.input(z.object({ invoiceId: z.string().uuid(), fields: invoiceFieldsInput })).mutation(async ({ ctx, input }) => {
+    save: protectedProcedure.input(z.object({ invoiceId: z.string().uuid(), fields: invoiceFieldsInput, issueDate: z.coerce.date().optional(), dueDate: z.coerce.date().optional() })).mutation(async ({ ctx, input }) => {
       const invoice = await invoiceDocs.getInvoice(ctx.user.workspaceId, input.invoiceId);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found." });
+      if (invoice.status === "void") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This invoice has been voided and can no longer be edited." });
+      if (input.issueDate && input.dueDate) {
+        if (input.dueDate < input.issueDate) throw new TRPCError({ code: "BAD_REQUEST", message: "The due date cannot be before the issue date." });
+        await invoiceDocs.updateInvoiceDates(ctx.user.workspaceId, input.invoiceId, { issueDate: input.issueDate, dueDate: input.dueDate });
+      }
       await invoiceDocs.saveInvoiceDocument(ctx.user.workspaceId, ctx.user.id, input.invoiceId, input.fields);
       await invoiceDocs.refreshInvoiceSummary(ctx.user.workspaceId, input.invoiceId);
       const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId);
@@ -380,6 +394,7 @@ export const appRouter = router({
       const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId);
       if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found." });
       if (!bundle.document) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Review and save the invoice details before sending." });
+      if (bundle.invoice.status === "void") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This invoice has been voided and can no longer be sent." });
       if (!bundle.view.totals.total) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add at least one priced line item before sending." });
       if (input.channel === "email" && !bundle.fields.clientEmail) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a client email address before sending by email." });
       if (input.channel === "whatsapp" && !bundle.fields.clientPhone) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a client phone number before sending by WhatsApp." });
@@ -389,6 +404,13 @@ export const appRouter = router({
       await invoiceDocs.refreshInvoiceSummary(ctx.user.workspaceId, input.invoiceId);
       await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.invoiceId, tableName: "invoices", action: "Sent", detail: `Invoice ${bundle.invoice.number} prepared for ${bundle.fields.clientName} by ${input.channel === "email" ? "email" : "WhatsApp"}.`, actorUserId: ctx.user.id }]);
       return { success: true as const, channel: input.channel, viewUrl, waLink: drafts.waLink, emailDraftUrl: drafts.emailDraftUrl, sentAt: updated?.sentAt ?? new Date() };
+    }),
+    void: protectedProcedure.input(z.object({ invoiceId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const invoice = await invoiceDocs.getInvoice(ctx.user.workspaceId, input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found." });
+      await invoiceDocs.voidInvoice(ctx.user.workspaceId, input.invoiceId);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.invoiceId, tableName: "invoices", action: "Voided", detail: `Invoice ${invoice.number} was voided.`, actorUserId: ctx.user.id }]);
+      return { success: true as const };
     }),
     downloadPdf: protectedProcedure.input(z.object({ invoiceId: z.string().uuid() })).query(async ({ ctx, input }) => {
       const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId);

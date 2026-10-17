@@ -11,7 +11,7 @@ const toFields = (f: Form): InvoiceFields => ({ ...f, discount: Number(f.discoun
 export type InvoiceMeta = { number: string; issueDate: string; dueDate: string };
 export type ClientOption = { name: string; email: string; phone: string };
 
-export default function InvoiceDetailsDialog({ open, number, initial, saving, onClose, onSubmit, initialMeta, clients = [] }: { open: boolean; number: string; initial: InvoiceFields; saving: boolean; onClose: () => void; onSubmit: (fields: InvoiceFields, meta?: InvoiceMeta) => void; initialMeta?: InvoiceMeta; clients?: ClientOption[] }) {
+export default function InvoiceDetailsDialog({ open, number, initial, saving, onClose, onSubmit, initialMeta, clients = [], creating = true }: { open: boolean; number: string; initial: InvoiceFields; saving: boolean; onClose: () => void; onSubmit: (fields: InvoiceFields, meta?: InvoiceMeta) => void; initialMeta?: InvoiceMeta; clients?: ClientOption[]; creating?: boolean }) {
   const [meta, setMeta] = useState<InvoiceMeta | undefined>(initialMeta);
   const [form, setForm] = useState<Form>(() => toForm(initial));
   // Reset only when the dialog opens; the parent may pass fresh object literals on every render.
@@ -22,15 +22,15 @@ export default function InvoiceDetailsDialog({ open, number, initial, saving, on
   const setRow = (index: number, patch: Partial<Row>) => setForm((c) => ({ ...c, items: c.items.map((r, i) => i === index ? { ...r, ...patch } : r) }));
   const fields = toFields(form);
   const totals = computeInvoiceTotals(fields.items, fields.discount);
-  const problem = meta && !meta.number.trim() ? "Add an invoice number." : !form.clientName.trim() ? "Add the client or company name." : !fields.items.length || fields.items.some((i) => i.quantity <= 0) ? "Add at least one line with a quantity above zero." : Number(form.discount) > totals.subtotal ? "The discount cannot be more than the subtotal." : "";
+  const problem = meta && meta.dueDate < meta.issueDate ? "The due date cannot be before the issue date." : !form.clientName.trim() ? "Add the client or company name." : !fields.items.length || fields.items.some((i) => i.quantity <= 0) ? "Add at least one line with a quantity above zero." : Number(form.discount) > totals.subtotal ? "The discount cannot be more than the subtotal." : "";
   const text = (label: string, key: keyof Form, props: { wide?: boolean; type?: string; placeholder?: string } = {}) =>
     <label className={props.wide ? "wide" : undefined}>{label}<input type={props.type || "text"} placeholder={props.placeholder} value={form[key] as string} onChange={(e) => set(key, e.target.value as never)} /></label>;
   return <div className="record-dialog-backdrop" role="presentation" onMouseDown={(e) => { e.stopPropagation(); onClose(); }}>
     <section className="record-dialog panel contract-dialog" role="dialog" aria-modal="true" aria-labelledby="inv-form-title" onMouseDown={(e) => e.stopPropagation()}>
-      <div className="record-dialog-head"><div><span className="eyebrow">{number}</span><h2 id="inv-form-title">{meta ? "New invoice" : "Invoice details"}</h2></div><button className="record-close" aria-label="Close" onClick={onClose}><X /></button></div>
+      <div className="record-dialog-head"><div><span className="eyebrow">{number}</span><h2 id="inv-form-title">{creating ? "New invoice" : "Invoice details"}</h2></div><button className="record-close" aria-label="Close" onClick={onClose}><X /></button></div>
       <div className="contract-form-sections">
         {meta ? <fieldset><legend>Invoice</legend><div className="record-fields">
-          <label>Invoice number<input value={meta.number} onChange={(e) => setMeta({ ...meta, number: e.target.value })} /></label>
+          <label>Invoice number<input value={meta.number} readOnly title={creating ? "Assigned automatically when the invoice is created" : "Invoice numbers cannot be changed"} /></label>
           <label>Issue date<input type="date" value={meta.issueDate} onChange={(e) => setMeta({ ...meta, issueDate: e.target.value })} /></label>
           <label>Due date<input type="date" value={meta.dueDate} onChange={(e) => setMeta({ ...meta, dueDate: e.target.value })} /></label>
         </div></fieldset> : null}
@@ -65,7 +65,7 @@ export default function InvoiceDetailsDialog({ open, number, initial, saving, on
         <fieldset><legend>Notes / special instructions</legend><textarea rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Shown under Terms & Notes" /></fieldset>
       </div>
       {problem ? <p className="panel-subtle" role="alert">{problem}</p> : null}
-      <div className="record-dialog-actions"><button className="record-reset" onClick={onClose}>Cancel</button><button className="record-save" disabled={saving || Boolean(problem)} onClick={() => onSubmit(fields, meta)}><Check />{saving ? "Saving…" : meta ? "Create invoice" : "Save invoice details"}</button></div>
+      <div className="record-dialog-actions"><button className="record-reset" onClick={onClose}>Cancel</button><button className="record-save" disabled={saving || Boolean(problem)} onClick={() => onSubmit(fields, meta)}><Check />{saving ? "Saving…" : creating ? "Create invoice" : "Save invoice details"}</button></div>
     </section>
   </div>;
 }

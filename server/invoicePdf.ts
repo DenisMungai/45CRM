@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { INVOICE_TAGLINE, formatInvoiceMoney, type InvoiceView } from "../shared/invoice.js";
+import { INVOICE_TAGLINE, formatInvoiceMoney, invoiceTermRuns, type InvoiceView } from "../shared/invoice.js";
 
 const W = 595.28; // A4 at 72dpi
 const H = 841.89;
@@ -43,6 +43,25 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number): stri
     out.push(current);
   }
   return out.length ? out : [""];
+}
+
+type Word = { text: string; font: PDFFont };
+
+/** Wraps text made of regular and bold runs, keeping each word's font. */
+function wrapRuns(runs: { text: string; bold: boolean }[], regular: PDFFont, bold: PDFFont, size: number, maxWidth: number): Word[][] {
+  const words = runs.flatMap((run) => pdfSafe(run.text).split(/\s+/).filter(Boolean).map((text) => ({ text, font: run.bold ? bold : regular })));
+  const space = regular.widthOfTextAtSize(" ", size);
+  const lines: Word[][] = [];
+  let line: Word[] = [];
+  let width = 0;
+  for (const word of words) {
+    const w = word.font.widthOfTextAtSize(word.text, size);
+    if (line.length && width + space + w > maxWidth) { lines.push(line); line = []; width = 0; }
+    width += (line.length ? space : 0) + w;
+    line.push(word);
+  }
+  if (line.length) lines.push(line);
+  return lines.length ? lines : [[]];
 }
 
 /** "Label: value" lines where only the label is bold and wrapped lines start under the label. */
@@ -240,7 +259,7 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
 
   // --- Terms & notes ------------------------------------------------------------------------
   const termItems = [...view.terms, ...(view.notes.trim() ? [`Notes / special instructions: ${view.notes.trim()}`] : [])];
-  const termLines = termItems.map((term) => wrap(term, regular, 7.5, CW - pad * 2 - 10));
+  const termLines = termItems.map((term) => wrapRuns(invoiceTermRuns(term), regular, bold, 7.5, CW - pad * 2 - 10));
   const termsHeight = 16 + termLines.reduce((sum, lines) => sum + lines.length * 10 + 4, 0) + 8;
   ensure(termsHeight);
   rect(M, y, CW, termsHeight, PANEL, RULE);
@@ -248,15 +267,24 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   let ty = y - 14;
   for (const lines of termLines) {
     ty -= 4;
-    lines.forEach((line, i) => { ty -= 10; if (i === 0) text("\u2022", M + pad, ty, 7.5, regular, MUTED); text(line, M + pad + 10, ty, 7.5, regular, MUTED); });
+    lines.forEach((line, i) => {
+      ty -= 10;
+      if (i === 0) text("\u2022", M + pad, ty, 7.5, regular, MUTED);
+      let x = M + pad + 10;
+      for (const word of line) {
+        text(word.text, x, ty, 7.5, word.font, word.font === bold ? INK : MUTED);
+        x += word.font.widthOfTextAtSize(word.text, 7.5) + regular.widthOfTextAtSize(" ", 7.5);
+      }
+    });
   }
   y -= termsHeight + 16;
 
   // --- Thank you ----------------------------------------------------------------------------
-  const thanks = wrap(`Thank you for choosing ${name}. We appreciate your business.`, regular, 8.5, 230);
+  // As in the template: only the thank-you sentence is bold.
+  const thanks = [...wrap(`Thank you for choosing ${name}.`, bold, 8.5, 230).map((line) => ({ line, font: bold })), { line: "We appreciate your business.", font: regular }];
   ensure(thanks.length * 11 + 20);
   page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.5, color: RULE });
-  thanks.forEach((line, i) => text(line, M, y - 16 - i * 11, 8.5, i === 0 ? bold : regular));
+  thanks.forEach(({ line, font }, i) => text(line, M, y - 16 - i * 11, 8.5, font));
   text([view.business.website, view.business.email, view.business.phone].filter(Boolean).join(" \u00B7 "), W - M, y - 16, 7.5, regular, MUTED, "right");
 
   // --- Page footers -------------------------------------------------------------------------

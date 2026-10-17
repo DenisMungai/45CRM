@@ -1,4 +1,4 @@
-import { INVOICE_TAGLINE, formatInvoiceMoney, type InvoiceView } from "@shared/invoice";
+import { INVOICE_TAGLINE, formatInvoiceMoney, invoiceTermRuns, type InvoiceView } from "@shared/invoice";
 
 function Pair({ label, value }: { label: string; value: string }) {
   return value.trim() ? <p><strong>{label}</strong> {value}</p> : null;
@@ -56,7 +56,7 @@ export default function InvoiceSheet({ view }: { view: InvoiceView }) {
     </section>
     <section className="inv-terms">
       <h3>TERMS &amp; NOTES</h3>
-      <ul>{view.terms.map((term) => <li key={term}>{term}</li>)}{view.notes.trim() ? <li>Notes / special instructions: {view.notes.trim()}</li> : null}</ul>
+      <ul>{view.terms.map((term) => <li key={term}>{invoiceTermRuns(term).map((run, i) => run.bold ? <strong key={i}>{run.text}</strong> : <span key={i}>{run.text}</span>)}</li>)}{view.notes.trim() ? <li>Notes / special instructions: {view.notes.trim()}</li> : null}</ul>
     </section>
     <footer className="inv-foot">
       <p><strong>Thank you for choosing {name}.</strong> We appreciate your business.</p>

@@ -719,5 +719,13 @@ button { border: 0; }
   .inv-money, .inv-info { break-inside: avoid; }
 }
 .inv-dialog-sheet { max-height: 52vh; overflow: auto; margin-top: 12px; border-radius: 8px; }
+/* Printing from the invoice popup prints only the invoice, not the dashboard behind it. */
+@media print {
+  body:has(.inv-dialog-sheet) .dashboard-app > :not(.record-dialog-backdrop) { display: none !important; }
+  body:has(.inv-dialog-sheet) .record-dialog-backdrop { position: static !important; inset: auto !important; padding: 0 !important; background: #fff !important; backdrop-filter: none !important; }
+  body:has(.inv-dialog-sheet) .record-dialog { width: auto !important; max-width: none !important; max-height: none !important; overflow: visible !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; background: #fff !important; }
+  body:has(.inv-dialog-sheet) .record-dialog > :not(.inv-dialog-sheet) { display: none !important; }
+  body:has(.inv-dialog-sheet) .inv-dialog-sheet { max-height: none !important; overflow: visible !important; margin: 0 !important; }
+}
 .inv-dialog-sheet .inv-sheet { box-shadow: none; }
 .sent-chip { margin-left: 8px; padding: 1px 6px; border-radius: 4px; background: rgba(121,166,207,.14); color: #79a6cf; font-size: 9px; font-weight: 600; white-space: nowrap; }

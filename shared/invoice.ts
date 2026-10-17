@@ -63,6 +63,15 @@ export const paymentInstructionKeys = [
   "mpesaNumber", "mpesaAccount", "bankName", "bankAccountName", "bankAccountNumber", "confirmationContact", "businessWebsite",
 ] as const satisfies readonly (keyof InvoiceFields)[];
 
+export const INVOICE_NUMBER_PREFIX = "45C-INV-";
+
+/** The next number in the 45C-INV-0001 sequence, given the numbers already used. */
+export function nextInvoiceNumberFrom(existing: string[]): string {
+  const pattern = new RegExp(`^${INVOICE_NUMBER_PREFIX}(\\d+)$`);
+  const highest = existing.reduce((max, number) => { const match = pattern.exec((number || "").trim()); return match ? Math.max(max, Number(match[1])) : max; }, 0);
+  return `${INVOICE_NUMBER_PREFIX}${String(highest + 1).padStart(4, "0")}`;
+}
+
 export type InvoiceDisplayStatus = "DRAFT" | "UNPAID" | "PART-PAID" | "PAID" | "OVERDUE" | "VOID";
 
 export const INVOICE_TAGLINE = "WEB DESIGN \u00B7 DEVELOPMENT \u00B7 DIGITAL";
@@ -72,6 +81,20 @@ export const INVOICE_TERMS = [
   "Work covered by this invoice follows the approved proposal or agreement. Unless otherwise agreed in writing, a 50% deposit is required before work begins and the remaining balance is payable before website launch or handover.",
   "Third-party fees (domain, hosting, paid plugins, stock assets, payment gateway charges) are included only where listed above.",
 ];
+
+/** The part of the terms the template sets in bold. */
+export const INVOICE_TERMS_EMPHASIS = "Unless otherwise agreed in writing, a 50% deposit is required before work begins and the remaining balance is payable before website launch or handover.";
+
+/** Splits a term into plain and bold runs so every renderer bolds the same words. */
+export function invoiceTermRuns(term: string): { text: string; bold: boolean }[] {
+  const at = term.indexOf(INVOICE_TERMS_EMPHASIS);
+  if (at < 0) return [{ text: term, bold: false }];
+  return [
+    { text: term.slice(0, at), bold: false },
+    { text: INVOICE_TERMS_EMPHASIS, bold: true },
+    { text: term.slice(at + INVOICE_TERMS_EMPHASIS.length), bold: false },
+  ].filter((run) => run.text);
+}
 
 export function formatInvoiceMoney(value: number): string {
   return `KSh ${(Number.isFinite(value) ? value : 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

@@ -5,7 +5,7 @@ import { downloadBase64Pdf } from "@/lib/utils";
 
 export type InvoiceSendResult = { channel: "email" | "whatsapp"; viewUrl: string; waLink: string | null; emailDraftUrl: string };
 
-/** Save / send / download behaviour shared by the invoice popup and the full invoice page. */
+/** Save / send / void / download behaviour for the invoice popup. */
 export function useInvoiceActions({ invoiceId, hasDocument, onTotalChange }: { invoiceId: string; hasDocument: boolean; onTotalChange: (total: number) => void }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
@@ -13,9 +13,13 @@ export function useInvoiceActions({ invoiceId, hasDocument, onTotalChange }: { i
   const [downloading, setDownloading] = useState(false);
   const [sendResult, setSendResult] = useState<InvoiceSendResult | null>(null);
   const composeWindow = useRef<Window | null>(null);
-  const refresh = () => { utils.invoiceDocs.view.invalidate(); utils.invoiceDocs.list.invalidate(); utils.records.list.invalidate(); };
+  const refresh = () => { utils.invoiceDocs.view.invalidate(); utils.invoiceDocs.summaries.invalidate(); utils.records.list.invalidate(); };
   const save = trpc.invoiceDocs.save.useMutation({
     onSuccess: (result) => { setEditing(false); onTotalChange(result.total); refresh(); toast.success("Invoice details saved"); },
+    onError: (error) => toast.error(error.message),
+  });
+  const voidInvoice = trpc.invoiceDocs.void.useMutation({
+    onSuccess: () => { refresh(); toast.success("Invoice voided"); },
     onError: (error) => toast.error(error.message),
   });
   const send = trpc.invoiceDocs.send.useMutation({
@@ -43,5 +47,5 @@ export function useInvoiceActions({ invoiceId, hasDocument, onTotalChange }: { i
     finally { setDownloading(false); }
   };
   const copy = (value: string) => { navigator.clipboard?.writeText(value).then(() => toast.success("Copied to clipboard")).catch(() => toast.error("Could not copy")); };
-  return { editing, setEditing, sending, downloading, sendResult, setSendResult, save, startSend, downloadPdf, copy };
+  return { editing, setEditing, sending, downloading, sendResult, setSendResult, save, voidInvoice, startSend, downloadPdf, copy };
 }

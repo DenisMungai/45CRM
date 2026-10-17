@@ -1,12 +1,12 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { getDb } from "./db.js";
 import { clients, invoiceDocuments, invoices, payments, workspaces } from "../drizzle/schema.js";
 import { ENV } from "./_core/env.js";
 import { buildWhatsAppLink } from "./whatsappDelivery.js";
 import {
-  buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, formatInvoiceMoney, nextStoredInvoiceStatus, paymentInstructionKeys,
-  type InvoiceFields, type InvoiceView,
+  buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceMoney, INVOICE_NUMBER_PREFIX, nextInvoiceNumberFrom, nextStoredInvoiceStatus, paymentInstructionKeys,
+  type InvoiceDisplayStatus, type InvoiceFields, type InvoiceView,
 } from "../shared/invoice.js";
 
 type InvoiceRow = typeof invoices.$inferSelect;
@@ -19,6 +19,52 @@ export async function getInvoice(workspaceId: string, invoiceId: string) {
 
 export async function listInvoiceDocuments(workspaceId: string) {
   return getDb().select({ invoiceId: invoiceDocuments.invoiceId, sentAt: invoiceDocuments.sentAt, lastSentChannel: invoiceDocuments.lastSentChannel }).from(invoiceDocuments).where(eq(invoiceDocuments.workspaceId, workspaceId));
+}
+
+export type InvoiceSummary = {
+  id: string; number: string; clientName: string; issueDate: Date; dueDate: Date | null;
+  total: number; received: number; balance: number; status: InvoiceDisplayStatus;
+  hasDocument: boolean; sentAt: Date | null; lastSentChannel: string | null;
+};
+
+/** One row per invoice for the Invoices page, with the same totals and status as the invoice itself. */
+export async function listInvoiceSummaries(workspaceId: string): Promise<InvoiceSummary[]> {
+  const db = getDb();
+  const [invoiceRows, documentRows, paymentRows, clientRows] = await Promise.all([
+    db.select().from(invoices).where(eq(invoices.workspaceId, workspaceId)).orderBy(desc(invoices.issueDate), desc(invoices.createdAt)),
+    db.select().from(invoiceDocuments).where(eq(invoiceDocuments.workspaceId, workspaceId)),
+    db.select({ invoiceId: payments.invoiceId, amount: payments.amount }).from(payments).where(and(eq(payments.workspaceId, workspaceId), eq(payments.status, "completed"))),
+    db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.workspaceId, workspaceId)),
+  ]);
+  const documents = new Map(documentRows.map((d) => [d.invoiceId, d]));
+  const clientNames = new Map(clientRows.map((c) => [c.id, c.name]));
+  const paidByInvoice = new Map<string, number>();
+  for (const p of paymentRows) if (p.invoiceId) paidByInvoice.set(p.invoiceId, (paidByInvoice.get(p.invoiceId) || 0) + (Number(p.amount) || 0));
+  return invoiceRows.map((invoice) => {
+    const document = documents.get(invoice.id);
+    const fields = document ? withDefaults(document.fields as Partial<InvoiceFields>) : null;
+    const payable = fields ? computeInvoiceTotals(fields.items, fields.discount).total : invoice.total;
+    const paid = paidByInvoice.get(invoice.id) || 0;
+    // Same rule as the invoice sheet: one marked Paid by hand counts as fully settled.
+    const received = invoice.status === "paid" ? Math.max(paid, payable) : paid;
+    return {
+      id: invoice.id, number: invoice.number,
+      clientName: fields?.clientName || (invoice.clientId ? clientNames.get(invoice.clientId) || "" : ""),
+      issueDate: invoice.issueDate, dueDate: invoice.dueDate,
+      total: payable, received, balance: Math.max(0, payable - received),
+      status: deriveInvoiceStatus({ storedStatus: invoice.status, total: payable, received, dueDate: invoice.dueDate, sent: Boolean(document?.sentAt) }),
+      hasDocument: Boolean(document), sentAt: document?.sentAt ?? null, lastSentChannel: document?.lastSentChannel ?? null,
+    };
+  });
+}
+
+export async function updateInvoiceDates(workspaceId: string, invoiceId: string, dates: { issueDate: Date; dueDate: Date }) {
+  await getDb().update(invoices).set({ ...dates, updatedAt: new Date() }).where(and(eq(invoices.workspaceId, workspaceId), eq(invoices.id, invoiceId)));
+}
+
+/** Like withdrawing an agreement: the invoice stays on record as VOID and can no longer be sent. */
+export async function voidInvoice(workspaceId: string, invoiceId: string) {
+  await getDb().update(invoices).set({ status: "void", updatedAt: new Date() }).where(and(eq(invoices.workspaceId, workspaceId), eq(invoices.id, invoiceId)));
 }
 
 export async function getInvoiceDocument(workspaceId: string, invoiceId: string) {
@@ -89,6 +135,39 @@ export async function loadInvoiceBundle(workspaceId: string, invoiceId: string, 
   ]);
   if (!invoice || !workspace) return undefined;
   return assemble(workspace, invoice, document, clientNameHint);
+}
+
+export async function nextInvoiceNumber(workspaceId: string) {
+  const used = await getDb().select({ number: invoices.number }).from(invoices).where(and(eq(invoices.workspaceId, workspaceId), like(invoices.number, `${INVOICE_NUMBER_PREFIX}%`)));
+  return nextInvoiceNumberFrom(used.map((r) => r.number));
+}
+
+function isUniqueViolation(error: unknown) {
+  const code = (e: unknown) => (e && typeof e === "object" && "code" in e ? (e as { code?: unknown }).code : undefined);
+  return code(error) === "23505" || code((error as { cause?: unknown } | null)?.cause) === "23505";
+}
+
+/**
+ * Creates an invoice and its template details together, numbered by the server
+ * (45C-INV-0001, 0002, ...). Two people creating invoices at once can race for the same number;
+ * the unique index rejects the loser, which then takes the next one.
+ */
+export async function createInvoiceWithDocument(workspaceId: string, userId: string, input: { fields: InvoiceFields; issueDate: Date; dueDate: Date }) {
+  const total = computeInvoiceTotals(input.fields.items, input.fields.discount).total;
+  for (let attempt = 0; ; attempt++) {
+    const number = await nextInvoiceNumber(workspaceId);
+    try {
+      return await getDb().transaction(async (tx) => {
+        const client = await tx.select({ id: clients.id }).from(clients).where(and(eq(clients.workspaceId, workspaceId), eq(clients.name, input.fields.clientName))).limit(1).then((r) => r[0]);
+        const invoice = await tx.insert(invoices).values({ workspaceId, clientId: client?.id ?? null, number, status: "draft", subtotal: total, total, issueDate: input.issueDate, dueDate: input.dueDate }).returning().then((r) => r[0]);
+        await tx.insert(invoiceDocuments).values({ workspaceId, invoiceId: invoice.id, fields: input.fields, createdByUserId: userId });
+        return invoice;
+      });
+    } catch (error) {
+      if (attempt < 4 && isUniqueViolation(error)) continue;
+      throw error;
+    }
+  }
 }
 
 export async function saveInvoiceDocument(workspaceId: string, userId: string, invoiceId: string, fields: InvoiceFields) {
