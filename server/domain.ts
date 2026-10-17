@@ -7,7 +7,15 @@ import { syncPaymentTransaction } from "./crm.js";
 type Row = { id: string; tableName: string; recordData: string[] };
 const uuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : randomUUID();
 const money = (value = "") => Math.max(0, Math.round(Number(value.replace(/[^0-9.-]/g, "")) || 0));
-const date = (value?: string) => { if (!value) return new Date(); const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? new Date() : parsed; };
+const date = (value?: string) => {
+  if (!value) return new Date();
+  // Rows the server itself listed carry en-KE "dd/mm/yyyy" dates, which `new Date()` rejects (or
+  // misreads as mm/dd). Parse them explicitly so a re-sync never resets a stored date to "now".
+  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value.trim());
+  if (dmy) { const parsed = new Date(Date.UTC(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]))); return Number.isNaN(parsed.getTime()) ? new Date() : parsed; }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+};
 const clean = (value?: string) => value?.trim() || null;
 const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, "-");
 /** Converts a raw db enum value ("in-progress") into the human label the UI expects
@@ -47,7 +55,10 @@ async function syncInvoices(workspaceId: string, rows: Row[]) {
 async function syncPayments(workspaceId: string, rows: Row[]) {
   const db = getDb();
   for (const r of rows) {
-    const saved = await db.insert(payments).values({ id: uuid(r.id), workspaceId, number: value(r,0) || `PAY-${Date.now()}`, amount: money(value(r,4)), method: clean(value(r,5)), status: status(value(r,6), paymentStatuses, "completed") as any, paidAt: date(value(r,3)) }).onConflictDoUpdate({ target: payments.id, set: { number: value(r,0) || `PAY-${Date.now()}`, amount: money(value(r,4)), method: clean(value(r,5)), status: status(value(r,6), paymentStatuses, "completed") as any, paidAt: date(value(r,3)) } }).returning().then(rows => rows[0]);
+    // Link the payment to its invoice by invoice number so invoices can show payments received.
+    const invoiceNumber = clean(value(r,2));
+    const invoiceId = invoiceNumber ? await db.select({ id: invoices.id }).from(invoices).where(and(eq(invoices.workspaceId, workspaceId), eq(invoices.number, invoiceNumber))).limit(1).then(found => found[0]?.id ?? null) : null;
+    const saved = await db.insert(payments).values({ id: uuid(r.id), workspaceId, invoiceId, number: value(r,0) || `PAY-${Date.now()}`, amount: money(value(r,4)), method: clean(value(r,5)), status: status(value(r,6), paymentStatuses, "completed") as any, paidAt: date(value(r,3)) }).onConflictDoUpdate({ target: payments.id, set: { invoiceId, number: value(r,0) || `PAY-${Date.now()}`, amount: money(value(r,4)), method: clean(value(r,5)), status: status(value(r,6), paymentStatuses, "completed") as any, paidAt: date(value(r,3)) } }).returning().then(rows => rows[0]);
     if (saved) await syncPaymentTransaction(workspaceId, saved);
   }
 }

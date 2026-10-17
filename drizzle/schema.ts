@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import { boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import type { ContractFields } from "../shared/contract.js";
+import type { InvoiceFields } from "../shared/invoice.js";
 
 export const appRole = pgEnum("app_role", ["owner", "admin", "member"]);
 export const memberStatus = pgEnum("member_status", ["active", "invited", "suspended"]);
@@ -286,6 +287,22 @@ export const contracts = pgTable("contracts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("contracts_workspace_idx").on(t.workspaceId), index("contracts_client_idx").on(t.clientId), index("contracts_project_idx").on(t.projectId), uniqueIndex("contracts_token_hash_idx").on(t.tokenHash), index("contracts_wa_msg_idx").on(t.whatsappMessageId)]);
 
+// One row per invoice: the template-specific details (bill-to, project, line items, payment
+// instructions) plus send tracking. The core invoice row (number, dates, status) stays in `invoices`.
+export const invoiceDocuments = pgTable("invoice_documents", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  fields: jsonb("fields").$type<InvoiceFields>().default({} as InvoiceFields).notNull(),
+  // Bumping this invalidates every share link previously issued for the invoice.
+  shareVersion: integer("share_version").default(1).notNull(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  lastSentChannel: varchar("last_sent_channel", { length: 16 }),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("invoice_documents_invoice_idx").on(t.invoiceId), index("invoice_documents_workspace_idx").on(t.workspaceId)]);
+
 export const files = pgTable("files", {
   id: uuid("id").defaultRandom().primaryKey(),
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
@@ -340,6 +357,7 @@ export type User = typeof users.$inferSelect;
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type Contract = typeof contracts.$inferSelect;
+export type InvoiceDocument = typeof invoiceDocuments.$inferSelect;
 export type WhatsAppMessage = typeof whatsappMessages.$inferSelect;
 
 export const workspaceRelations = relations(workspaces, ({ many }) => ({ members: many(workspaceMembers), clients: many(clients), leads: many(leads), projects: many(projects), quotes: many(quotes), invoices: many(invoices), payments: many(payments), expenses: many(expenses), transactions: many(transactions), inventoryItems: many(inventoryItems), activityEvents: many(activityEvents), contracts: many(contracts), whatsappMessages: many(whatsappMessages) }));
@@ -349,4 +367,5 @@ export const projectRelations = relations(projects, ({ many }) => ({ tasks: many
 export const contractRelations = relations(contracts, ({ one, many }) => ({ workspace: one(workspaces, { fields: [contracts.workspaceId], references: [workspaces.id] }), client: one(clients, { fields: [contracts.clientId], references: [clients.id] }), project: one(projects, { fields: [contracts.projectId], references: [projects.id] }), whatsappMessages: many(whatsappMessages) }));
 export const whatsappMessagesRelations = relations(whatsappMessages, ({ one }) => ({ workspace: one(workspaces, { fields: [whatsappMessages.workspaceId], references: [workspaces.id] }), client: one(clients, { fields: [whatsappMessages.clientId], references: [clients.id] }), contract: one(contracts, { fields: [whatsappMessages.contractId], references: [contracts.id] }) }));
 export const quoteRelations = relations(quotes, ({ many }) => ({ items: many(quoteItems) }));
-export const invoiceRelations = relations(invoices, ({ many }) => ({ items: many(invoiceItems), payments: many(payments) }));
+export const invoiceRelations = relations(invoices, ({ many }) => ({ items: many(invoiceItems), payments: many(payments), documents: many(invoiceDocuments) }));
+export const invoiceDocumentRelations = relations(invoiceDocuments, ({ one }) => ({ workspace: one(workspaces, { fields: [invoiceDocuments.workspaceId], references: [workspaces.id] }), invoice: one(invoices, { fields: [invoiceDocuments.invoiceId], references: [invoices.id] }) }));

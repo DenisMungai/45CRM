@@ -18,6 +18,9 @@ import * as crm from "./crm.js";
 import * as contractsDb from "./contracts.js";
 import { defaultContractFields, newSigningToken, type ContractFields } from "./contracts.js";
 import { renderContractPdf } from "./contractPdf.js";
+import * as invoiceDocs from "./invoiceDocs.js";
+import { renderInvoicePdf } from "./invoicePdf.js";
+import { defaultInvoiceFields, type InvoiceFields } from "../shared/invoice.js";
 import { ENV } from "./_core/env.js";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -52,6 +55,34 @@ const contractFieldsInput = z.object({
   maintenanceFee: z.number().int().nonnegative().max(10_000_000).default(0),
   notes: z.string().trim().max(2000).default(""),
 }) satisfies z.ZodType<ContractFields>;
+const optionalEmail = z.union([z.literal(""), z.string().trim().email().max(320)]);
+const invoiceItemInput = z.object({
+  description: z.string().trim().min(1, "Every line needs a description.").max(300),
+  quantity: z.number().positive().max(100_000),
+  unitPrice: z.number().min(0).max(1_000_000_000),
+});
+const invoiceFieldsInput = z.object({
+  businessWebsite: z.string().trim().max(120).default(defaultInvoiceFields.businessWebsite),
+  clientName: z.string().trim().min(1, "Add the client or company name.").max(180),
+  contactPerson: z.string().trim().max(160).default(""),
+  clientEmail: optionalEmail.default(""),
+  clientPhone: z.string().trim().max(40).default(""),
+  billingAddress: z.string().trim().max(300).default(""),
+  projectName: z.string().trim().max(180).default(""),
+  scope: z.string().trim().max(600).default(""),
+  quotationRef: z.string().trim().max(120).default(""),
+  paymentTerms: z.string().trim().max(240).default(""),
+  milestone: z.string().trim().max(120).default(""),
+  items: z.array(invoiceItemInput).min(1).max(30),
+  discount: z.number().min(0).max(1_000_000_000).default(0),
+  mpesaNumber: z.string().trim().max(120).default(""),
+  mpesaAccount: z.string().trim().max(120).default(""),
+  bankName: z.string().trim().max(120).default(""),
+  bankAccountName: z.string().trim().max(160).default(""),
+  bankAccountNumber: z.string().trim().max(60).default(""),
+  confirmationContact: z.string().trim().max(160).default(""),
+  notes: z.string().trim().max(2000).default(""),
+}) satisfies z.ZodType<InvoiceFields>;
 const contractPartyInput = {
   clientId: z.string().uuid().nullable().optional(),
   projectId: z.string().uuid().nullable().optional(),
@@ -321,6 +352,58 @@ export const appRouter = router({
       const body = `Hello,\n\nBoth parties have signed ${contract.title}. Download the signed PDF from the CRM and attach it to this email before sending.\n\nRegards,\n${contract.providerName}`;
       const gmailDraftUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(copies.join(","))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       return { success: true as const, recipients: copies, gmailDraftUrl };
+    }),
+  }),
+  invoiceDocs: router({
+    list: protectedProcedure.query(({ ctx }) => invoiceDocs.listInvoiceDocuments(ctx.user.workspaceId)),
+    defaults: protectedProcedure.query(({ ctx }) => invoiceDocs.latestPaymentInstructions(ctx.user.workspaceId)),
+    // Everything the invoice sheet needs: the rendered view, the editable fields (defaults when the
+    // invoice has no saved details yet) and send tracking.
+    view: protectedProcedure.input(z.object({ invoiceId: z.string().uuid(), clientName: z.string().max(180).optional() })).query(async ({ ctx, input }) => {
+      const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId, input.clientName);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This invoice has not synced to the workspace database yet. Give it a moment and try again." });
+      return { view: bundle.view, fields: bundle.fields, hasDocument: Boolean(bundle.document), sentAt: bundle.document?.sentAt ?? null, lastSentChannel: bundle.document?.lastSentChannel ?? null };
+    }),
+    save: protectedProcedure.input(z.object({ invoiceId: z.string().uuid(), fields: invoiceFieldsInput })).mutation(async ({ ctx, input }) => {
+      const invoice = await invoiceDocs.getInvoice(ctx.user.workspaceId, input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found." });
+      await invoiceDocs.saveInvoiceDocument(ctx.user.workspaceId, ctx.user.id, input.invoiceId, input.fields);
+      const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.invoiceId, tableName: "invoices", action: "Details saved", detail: `Invoice details for ${invoice.number} were updated.`, actorUserId: ctx.user.id }]);
+      return { success: true as const, total: bundle!.view.totals.total };
+    }),
+    // Same hand-off as agreements: prepare a Gmail draft / WhatsApp message containing the secure
+    // invoice link. Nothing is dispatched from the server; the user reviews and presses Send.
+    send: protectedProcedure.input(z.object({ invoiceId: z.string().uuid(), channel: z.enum(["email", "whatsapp"]) })).mutation(async ({ ctx, input }) => {
+      if (hasLocalAppUrl()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "APP_URL points to localhost, which your client cannot open. Set APP_URL to this CRM's public HTTPS address and restart the server before sending." });
+      const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found." });
+      if (!bundle.document) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Review and save the invoice details before sending." });
+      if (!bundle.view.totals.total) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add at least one priced line item before sending." });
+      if (input.channel === "email" && !bundle.fields.clientEmail) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a client email address before sending by email." });
+      if (input.channel === "whatsapp" && !bundle.fields.clientPhone) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a client phone number before sending by WhatsApp." });
+      const viewUrl = invoiceDocs.invoiceViewUrl(bundle.document);
+      const drafts = invoiceDocs.buildInvoiceDrafts(bundle.view, bundle.fields.clientEmail, bundle.fields.clientPhone, viewUrl);
+      const updated = await invoiceDocs.markInvoiceDocumentSent(bundle.document.id, input.channel);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.invoiceId, tableName: "invoices", action: "Sent", detail: `Invoice ${bundle.invoice.number} prepared for ${bundle.fields.clientName} by ${input.channel === "email" ? "email" : "WhatsApp"}.`, actorUserId: ctx.user.id }]);
+      return { success: true as const, channel: input.channel, viewUrl, waLink: drafts.waLink, emailDraftUrl: drafts.emailDraftUrl, sentAt: updated?.sentAt ?? new Date() };
+    }),
+    downloadPdf: protectedProcedure.input(z.object({ invoiceId: z.string().uuid() })).query(async ({ ctx, input }) => {
+      const bundle = await invoiceDocs.loadInvoiceBundle(ctx.user.workspaceId, input.invoiceId);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found." });
+      const bytes = await renderInvoicePdf(bundle.view);
+      return { filename: invoiceDocs.invoicePdfFilename(bundle.view), content: Buffer.from(bytes).toString("base64") };
+    }),
+    getByToken: publicProcedure.input(z.object({ token: z.string().min(20).max(200) })).query(async ({ input }) => {
+      const bundle = await invoiceDocs.loadInvoiceBundleByToken(input.token);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This invoice link is invalid or has been replaced. Ask the sender for a new one." });
+      return { view: bundle.view };
+    }),
+    downloadPdfByToken: publicProcedure.input(z.object({ token: z.string().min(20).max(200) })).query(async ({ input }) => {
+      const bundle = await invoiceDocs.loadInvoiceBundleByToken(input.token);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This invoice link is invalid or has been replaced. Ask the sender for a new one." });
+      const bytes = await renderInvoicePdf(bundle.view);
+      return { filename: invoiceDocs.invoicePdfFilename(bundle.view), content: Buffer.from(bytes).toString("base64") };
     }),
   }),
   whatsapp: router({
