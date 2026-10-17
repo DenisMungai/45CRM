@@ -23,6 +23,8 @@ import { renderInvoicePdf } from "./invoicePdf.js";
 import { defaultInvoiceFields, type InvoiceFields } from "../shared/invoice.js";
 import { ENV } from "./_core/env.js";
 import { hashPassword, issueSession, verifyPassword } from "./auth.js";
+import * as renewalsDb from "./renewals.js";
+import { RENEWAL_CYCLES, RENEWAL_STATUSES, RENEWAL_TYPES } from "../shared/renewal.js";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "owner" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Administrator access is required." });
@@ -487,6 +489,45 @@ export const appRouter = router({
       if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This invoice link is invalid or has been replaced. Ask the sender for a new one." });
       const bytes = await renderInvoicePdf(bundle.view);
       return { filename: invoiceDocs.invoicePdfFilename(bundle.view), content: Buffer.from(bytes).toString("base64") };
+    }),
+  }),
+  renewals: router({
+    list: protectedProcedure.query(({ ctx }) => renewalsDb.listRenewals(ctx.user.workspaceId)),
+    upsert: protectedProcedure.input(z.object({
+      id: z.string().uuid().optional(),
+      clientName: z.string().trim().min(1, "Choose the client.").max(180),
+      type: z.enum(RENEWAL_TYPES),
+      name: z.string().trim().min(1, "Name the service, e.g. the domain or site.").max(180),
+      provider: z.string().trim().max(120).nullable().optional(),
+      cycle: z.enum(RENEWAL_CYCLES),
+      amount: z.number().int().nonnegative().max(100_000_000),
+      cost: z.number().int().nonnegative().max(100_000_000).default(0),
+      nextDueDate: z.coerce.date(),
+      status: z.enum(RENEWAL_STATUSES).default("active"),
+      notes: z.string().trim().max(2000).nullable().optional(),
+    })).mutation(async ({ ctx, input }) => {
+      if (input.id && !(await renewalsDb.getRenewal(ctx.user.workspaceId, input.id))) throw new TRPCError({ code: "NOT_FOUND", message: "Renewal not found." });
+      const saved = await renewalsDb.upsertRenewal(ctx.user.workspaceId, input);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: saved.id, tableName: "renewals", action: input.id ? "Updated" : "Created", detail: `${saved.name} (${saved.clientName}) ${input.id ? "updated" : "added to renewals"}.`, actorUserId: ctx.user.id }]);
+      return saved;
+    }),
+    delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const existing = await renewalsDb.getRenewal(ctx.user.workspaceId, input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Renewal not found." });
+      await renewalsDb.deleteRenewal(ctx.user.workspaceId, input.id);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.id, tableName: "renewals", action: "Deleted", detail: `${existing.name} (${existing.clientName}) removed from renewals.`, actorUserId: ctx.user.id }]);
+      return { success: true as const };
+    }),
+    invoice: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const result = await renewalsDb.invoiceRenewal(ctx.user.workspaceId, ctx.user.id, input.id);
+      if ("error" in result) throw new TRPCError(result.error === "NOT_FOUND" ? { code: "NOT_FOUND", message: "Renewal not found." } : result.error === "CANCELLED" ? { code: "PRECONDITION_FAILED", message: "This renewal is cancelled. Reactivate it before invoicing." } : { code: "PRECONDITION_FAILED", message: "Set the amount you charge the client before invoicing this renewal." });
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.id, tableName: "renewals", action: "Invoiced", detail: `Invoice ${result.invoice.number} created for ${result.renewal.name}; next renewal ${result.nextDueDate.toISOString().slice(0, 10)}.`, actorUserId: ctx.user.id }]);
+      return { invoiceId: result.invoice.id, number: result.invoice.number, nextDueDate: result.nextDueDate };
+    }),
+    fromContract: protectedProcedure.input(z.object({ contractId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const result = await renewalsDb.createRenewalsFromContract(ctx.user.workspaceId, input.contractId);
+      if ("error" in result) throw new TRPCError({ code: "NOT_FOUND", message: "Agreement not found." });
+      return { created: result.created.length, skipped: result.skipped };
     }),
   }),
   whatsapp: router({

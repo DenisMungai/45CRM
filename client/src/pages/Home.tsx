@@ -8,6 +8,8 @@ import { trpc } from "@/lib/trpc";
 import { downloadBase64Pdf } from "@/lib/utils";
 import DashboardProfileCard, { buildProfileUpdateInput, notifyProfileMutation } from "@/components/DashboardProfileCard";
 import SignaturePad from "@/components/SignaturePad";
+import RenewalsPage from "@/components/RenewalsPage";
+import { daysUntil, renewalUrgency } from "@shared/renewal";
 import InvoiceDetailsDialog from "@/components/InvoiceDetailsDialog";
 import InvoiceViewDialog, { invoiceStatusTone, type InvoicePaymentTarget } from "@/components/InvoiceViewDialog";
 import { defaultInvoiceFields, nextInvoiceNumberFrom, type InvoiceFields } from "@shared/invoice";
@@ -16,7 +18,7 @@ import { startLogin } from "@/const";
 import { toast } from "sonner";
 import {
   Activity, Archive, ArrowDownRight, ArrowLeft, ArrowUpRight, Bell, Bot, BookOpen,
-  Box, BriefcaseBusiness, Building2, CalendarDays, Check, CheckCircle2, ChevronRight,
+  Box, BriefcaseBusiness, Building2, CalendarClock, CalendarDays, Check, CheckCircle2, ChevronRight,
   CircleAlert, CircleDollarSign, ClipboardList, Copy, CreditCard, Database, Eraser, ExternalLink, FileBarChart,
   FileDown, FileSignature, FileText, FolderKanban, HardDrive, Headphones, Landmark, Lightbulb,
   LayoutDashboard, LogOut, Mail, MessageCircle, Package, Pencil, PenTool, Phone, Plus, ReceiptText, RefreshCw, Search, Send,
@@ -28,7 +30,7 @@ import {
 } from "recharts";
 import type { ContractFields } from "@shared/contract";
 
-type PageKey = "Dashboard" | "Clients" | "Leads" | "Projects" | "Quotes" | "Invoices" | "Payments" | "Inventory" | "Accounting" | "Contracts" | "Reports" | "AI Assistant" | "Settings" | "Client Details";
+type PageKey = "Dashboard" | "Clients" | "Leads" | "Projects" | "Quotes" | "Invoices" | "Payments" | "Inventory" | "Accounting" | "Contracts" | "Renewals" | "Reports" | "AI Assistant" | "Settings" | "Client Details";
 type StatusTone = "active" | "paid" | "completed" | "accepted" | "overdue" | "expired" | "negative" | "pending" | "draft" | "new" | "sent" | "in-progress" | "proposal";
 type EditableRow = string[];
 /** Per-field choices: `strict` renders a select (fixed database values), otherwise suggestions. */
@@ -45,7 +47,7 @@ const navItems: { label: Exclude<PageKey, "Client Details">; icon: typeof Layout
   { label: "Dashboard", icon: LayoutDashboard }, { label: "Clients", icon: Users }, { label: "Leads", icon: UserRound },
   { label: "Projects", icon: FolderKanban }, { label: "Quotes", icon: FileText }, { label: "Invoices", icon: ReceiptText },
   { label: "Payments", icon: WalletCards }, { label: "Inventory", icon: Package }, { label: "Accounting", icon: BookOpen },
-  { label: "Contracts", icon: FileSignature },
+  { label: "Contracts", icon: FileSignature }, { label: "Renewals", icon: CalendarClock },
   { label: "Reports", icon: Activity }, { label: "AI Assistant", icon: Sparkles }, { label: "Settings", icon: Settings },
 ];
 
@@ -307,7 +309,8 @@ function Sidebar({ active, onNavigate, onQuickCreate }: { active: PageKey; onNav
 type WorkspaceAlert = { id: string; tone: "danger" | "warning" | "info"; title: string; detail: string; page: PageKey };
 
 /** Things that need attention, worked out from the workspace records. */
-function buildWorkspaceAlerts({ invoiceRows, leadRows, projectRows, quoteRows, inventoryRows }: { invoiceRows: EditableRow[]; leadRows: EditableRow[]; projectRows: EditableRow[]; quoteRows: EditableRow[]; inventoryRows: EditableRow[] }): WorkspaceAlert[] {
+type AlertRenewal = { id: string; name: string; clientName: string; amount: number; nextDueDate: Date | string; status: string };
+function buildWorkspaceAlerts({ invoiceRows, leadRows, projectRows, quoteRows, inventoryRows, renewals = [] }: { invoiceRows: EditableRow[]; leadRows: EditableRow[]; projectRows: EditableRow[]; quoteRows: EditableRow[]; inventoryRows: EditableRow[]; renewals?: AlertRenewal[] }): WorkspaceAlert[] {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const inDays = (days: number) => new Date(startOfToday.getTime() + days * 86_400_000);
@@ -329,6 +332,14 @@ function buildWorkspaceAlerts({ invoiceRows, leadRows, projectRows, quoteRows, i
     const validUntil = parseRowDate(row[6]);
     if ((label === "sent" || label === "draft") && validUntil && validUntil <= inDays(7)) alerts.push({ id: `quote-expiry-${getRecordId(row)}`, tone: validUntil < startOfToday ? "danger" : "warning", title: `${row[0]} ${validUntil < startOfToday ? "has expired" : "expires soon"}`, detail: `${row[1] || "Client"} · valid until ${row[6]}`, page: "Quotes" });
   });
+  renewals.forEach((renewal) => {
+    const urgency = renewalUrgency(renewal);
+    if (urgency !== "overdue" && urgency !== "due-soon") return;
+    const days = daysUntil(renewal.nextDueDate);
+    // Only flag the next two weeks here; the Renewals page shows the full 30-day window.
+    if (urgency === "due-soon" && days > 14) return;
+    alerts.push({ id: `renewal-${renewal.id}`, tone: urgency === "overdue" ? "danger" : "warning", title: `${renewal.name} ${urgency === "overdue" ? "renewal is overdue" : days === 0 ? "renews today" : `renews in ${days} day${days === 1 ? "" : "s"}`}`, detail: `${renewal.clientName}${renewal.amount ? ` · ${formatKsh(renewal.amount)} to invoice` : ""}`, page: "Renewals" });
+  });
   const stock = inventoryRows.filter((row) => /low stock|out of stock/i.test(row[6] || ""));
   if (stock.length) alerts.push({ id: "stock", tone: "warning", title: `${stock.length} inventory item${stock.length === 1 ? "" : "s"} low or out of stock`, detail: stock.slice(0, 3).map((row) => row[0]).join(", "), page: "Inventory" });
   const rank = { danger: 0, warning: 1, info: 2 };
@@ -346,7 +357,7 @@ function NotificationsMenu({ alerts, onNavigate }: { alerts: WorkspaceAlert[]; o
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
   }, [open]);
   const urgent = alerts.filter((alert) => alert.tone !== "info").length;
-  return <div className="notify-wrap" ref={ref}><button className="round-icon" aria-label={`Notifications (${alerts.length})`} aria-expanded={open} onClick={() => setOpen((value) => !value)}><Bell />{alerts.length ? <span className={`notify-badge ${urgent ? "" : "quiet"}`}>{alerts.length > 9 ? "9+" : alerts.length}</span> : null}</button>{open ? <div className="notify-panel panel" role="dialog" aria-label="Notifications"><div className="panel-head"><h2 className="panel-title">Needs attention</h2><span className="panel-subtle">{alerts.length ? `${alerts.length} item${alerts.length === 1 ? "" : "s"}` : "All clear"}</span></div>{alerts.length ? <div className="notify-list">{alerts.slice(0, 12).map((alert) => <button key={alert.id} className={`notify-item ${alert.tone}`} onClick={() => { setOpen(false); onNavigate(alert.page); }}><i /><span><strong>{alert.title}</strong><small>{alert.detail}</small></span><ChevronRight /></button>)}</div> : <p className="activity-empty">Nothing needs your attention right now. Overdue invoices, invoices due soon, new leads, late projects, expiring quotes and stock alerts show up here.</p>}</div> : null}</div>;
+  return <div className="notify-wrap" ref={ref}><button className="round-icon" aria-label={`Notifications (${alerts.length})`} aria-expanded={open} onClick={() => setOpen((value) => !value)}><Bell />{alerts.length ? <span className={`notify-badge ${urgent ? "" : "quiet"}`}>{alerts.length > 9 ? "9+" : alerts.length}</span> : null}</button>{open ? <div className="notify-panel panel" role="dialog" aria-label="Notifications"><div className="panel-head"><h2 className="panel-title">Needs attention</h2><span className="panel-subtle">{alerts.length ? `${alerts.length} item${alerts.length === 1 ? "" : "s"}` : "All clear"}</span></div>{alerts.length ? <div className="notify-list">{alerts.slice(0, 12).map((alert) => <button key={alert.id} className={`notify-item ${alert.tone}`} onClick={() => { setOpen(false); onNavigate(alert.page); }}><i /><span><strong>{alert.title}</strong><small>{alert.detail}</small></span><ChevronRight /></button>)}</div> : <p className="activity-empty">Nothing needs your attention right now. Overdue invoices, invoices due soon, upcoming renewals, new leads, late projects, expiring quotes and stock alerts show up here.</p>}</div> : null}</div>;
 }
 
 function Topbar({ query, onQuery, onNavigate, alerts }: { query: string; onQuery: (value: string) => void; onNavigate: (page: PageKey) => void; alerts: WorkspaceAlert[] }) {
@@ -743,6 +754,7 @@ function ContractViewDialog({ contract, onClose, onDelete, deleting, onCreateInv
       toast.success("Gmail draft opened and signed PDF downloaded. Attach the PDF, then send.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Gmail opened, but the signed PDF could not be downloaded."); }
   }, onError: (error) => { if (resendWindow.current) resendWindow.current.close(); resendWindow.current = null; toast.error(error.message); } });
+  const trackRenewals = trpc.renewals.fromContract.useMutation({ onSuccess: ({ created, skipped }) => { utils.renewals.list.invalidate(); toast[created ? "success" : "info"](created ? `${created} renewal${created === 1 ? "" : "s"} added. See the Renewals page.` : skipped ? "These renewals are already being tracked." : "This agreement has no hosting, domain or maintenance terms to track."); }, onError: (error) => toast.error(error.message) });
   const voidMutation = trpc.contracts.void.useMutation({ onSuccess: () => { toast.success("Agreement withdrawn"); utils.contracts.list.invalidate(); onClose(); }, onError: (error) => toast.error(error.message) });
   if (!contract) return null;
   const copy = (value: string) => { navigator.clipboard?.writeText(value).then(() => toast.success("Copied to clipboard")).catch(() => toast.error("Could not copy")); };
@@ -829,7 +841,7 @@ function ContractViewDialog({ contract, onClose, onDelete, deleting, onCreateInv
         {contract.documensoStatus === "completed" && contract.documensoCertifiedPdfPath && <a className="text-button" href={contract.documensoCertifiedPdfPath} target="_blank" rel="noreferrer"><FileDown size={11} />Download certified PDF</a>}
         {contract.documensoStatus === "pending" && contract.documensoProviderSigningUrl && <a className="text-button" href={contract.documensoProviderSigningUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} />Sign on Documenso</a>}
       </div>}
-      <div className="contract-actions-row">{contract.status !== "voided" ? <button onClick={() => onCreateInvoice(contract)} title="Start an invoice for the deposit agreed in this contract"><ReceiptText />Create deposit invoice</button> : null}<button className="contract-delete-button" disabled={deleting} onClick={() => onDelete(contract)}><Trash2 />{deleting ? "Deleting…" : "Delete agreement"}</button></div>
+      <div className="contract-actions-row">{contract.status !== "voided" ? <button onClick={() => onCreateInvoice(contract)} title="Start an invoice for the deposit agreed in this contract"><ReceiptText />Create deposit invoice</button> : null}{contract.status === "signed" ? <button disabled={trackRenewals.isPending} onClick={() => trackRenewals.mutate({ contractId: contract.id })} title="Add this agreement's hosting, domain and maintenance terms to Renewals"><CalendarClock />{trackRenewals.isPending ? "Adding…" : "Track renewals"}</button> : null}<button className="contract-delete-button" disabled={deleting} onClick={() => onDelete(contract)}><Trash2 />{deleting ? "Deleting…" : "Delete agreement"}</button></div>
       <div className="contract-document" dangerouslySetInnerHTML={{ __html: contract.documentHtml }} />
     </section>
   </div>;
@@ -1089,7 +1101,7 @@ function AccountLifecyclePanel({ openRequest }: { openRequest: number }) {
 type ServerRecord = { id: string; tableName: string; recordData: string[] };
 type RecordRowInput = { id: string; tableName: string; recordData: string[] };
 /** Pages with their own table; on any other page the top search shows workspace-wide results. */
-const pagesWithTables = new Set<PageKey>(["Clients", "Leads", "Projects", "Quotes", "Invoices", "Payments", "Inventory", "Accounting", "Contracts"]);
+const pagesWithTables = new Set<PageKey>(["Clients", "Leads", "Projects", "Quotes", "Invoices", "Payments", "Inventory", "Accounting", "Contracts", "Renewals"]);
 const rowSignature = (row: EditableRow) => JSON.stringify(row.filter((cell) => !isRecordId(cell)));
 
 export default function Home() {
@@ -1130,6 +1142,7 @@ export default function Home() {
   const sharedRecords = trpc.records.list.useQuery(undefined, { enabled: Boolean(user) });
   const sharedActivity = trpc.activity.list.useQuery({}, { enabled: user?.role === "admin" });
   const members = trpc.workspace.members.useQuery(undefined, { enabled: Boolean(user) });
+  const renewalList = trpc.renewals.list.useQuery(undefined, { enabled: Boolean(user) });
   // A session that expired while the app was open sends the user back to sign in.
   useEffect(() => { if (sharedRecords.error?.data?.code === "UNAUTHORIZED") startLogin(); }, [sharedRecords.error]);
 
@@ -1232,10 +1245,12 @@ export default function Home() {
   }, []);
 
   // --- Pickers ------------------------------------------------------------------------------
-  const clientNames = clientRows.map((row) => row[0]).filter(Boolean);
-  const projectNames = projectRows.map((row) => row[0]).filter(Boolean);
-  const invoiceNumbers = invoiceRows.filter((row) => row[6] !== "void").map((row) => row[0]).filter(Boolean);
-  const memberNames = ["Unassigned", ...(members.data || []).map((member) => member.name)];
+  // De-duplicated: two records can share a name, and suggestion lists need unique entries.
+  const unique = (values: string[]) => Array.from(new Set(values.map((value) => (value || "").trim()).filter(Boolean)));
+  const clientNames = unique(clientRows.map((row) => row[0]));
+  const projectNames = unique(projectRows.map((row) => row[0]));
+  const invoiceNumbers = unique(invoiceRows.filter((row) => row[6] !== "void").map((row) => row[0]));
+  const memberNames = unique(["Unassigned", ...(members.data || []).map((member) => member.name)]);
   const findClient = (name: string) => clientRows.find((row) => (row[0] || "").trim().toLowerCase() === (name || "").trim().toLowerCase());
 
   // --- Invoices -----------------------------------------------------------------------------
@@ -1297,7 +1312,7 @@ export default function Home() {
   const transactionLabels = ["Date", "Reference", "Description", "Type", "Amount"];
   const transactionExtras = { options: { 3: { values: transactionTypeOptions, strict: true } } };
 
-  const alerts = useMemo(() => buildWorkspaceAlerts({ invoiceRows, leadRows, projectRows, quoteRows, inventoryRows }), [invoiceRows, leadRows, projectRows, quoteRows, inventoryRows]);
+  const alerts = useMemo(() => buildWorkspaceAlerts({ invoiceRows, leadRows, projectRows, quoteRows, inventoryRows, renewals: renewalList.data }), [invoiceRows, leadRows, projectRows, quoteRows, inventoryRows, renewalList.data]);
   const navigate = (next: PageKey) => { setPage(next); setQuery(""); };
   const openSearchResult = (target: PageKey, row: EditableRow, table: string) => { if (table === "clients") { setSelectedClientId(getRecordId(row)); setQuery(""); setPage("Client Details"); return; } setPage(target); };
   const selectedClient = selectedClientId ? clientRows.find((row) => getRecordId(row) === selectedClientId) ?? null : null;
@@ -1315,6 +1330,7 @@ export default function Home() {
     case "Inventory": return <InventoryPage query={query} rows={inventoryRows} onEdit={(index) => openEditor("inventory item", inventoryLabels, inventoryRows[index].slice(0, 7), (next) => updateStoredRow(setInventoryRows, index, inventoryFromEditor(next)), { readOnly: [5, 6] })} onCreate={() => openEditor("new inventory item", inventoryLabels, ["", "Equipment", nextSequenceNumber("AST-", inventoryRows.map((row) => row[2])), "1", "KSh 0", "KSh 0", "Low Stock"], (next, id) => setInventoryRows((current) => [...current, withId(inventoryFromEditor(next), id)]), { readOnly: [5, 6] })} onDelete={(index) => deleteRecord("inventory item", "inventory", inventoryRows[index], index, setInventoryRows)} onBulkDelete={(indices) => bulkDeleteRecords("inventory item", "inventory", inventoryRows, indices, setInventoryRows)} />;
     case "Accounting": return <AccountingBulkPage query={query} rows={transactionRows} onEdit={(index) => openEditor("transaction", transactionLabels, transactionRows[index].slice(0, 5), (next) => updateStoredRow(setTransactionRows, index, [...next.slice(0, 4), formatKsh(parseAmount(next[4])), transactionSign(next[3])]), transactionExtras)} onCreate={() => openEditor("new transaction", transactionLabels, [dateLabel(), "", "", "Expense", "KSh 0"], (next, id) => setTransactionRows((current) => [...current, withId([...next.slice(0, 4), formatKsh(parseAmount(next[4])), transactionSign(next[3])], id)]), transactionExtras)} onDelete={(index) => deleteRecord("transaction", "transactions", transactionRows[index], index, setTransactionRows)} onBulkEdit={(indices, value) => bulkUpdateRows("transactions", setTransactionRows, transactionRows, indices, (row) => [...row.slice(0, 3), value, row[4], transactionSign(value), ...row.slice(6)])} onBulkDelete={(indices) => bulkDeleteRecords("transaction", "transactions", transactionRows, indices, setTransactionRows)} />;
     case "Contracts": return <ContractsPage query={query} onCreateInvoice={invoiceFromContract} />;
+    case "Renewals": return <RenewalsPage query={query} clients={clientNames} onOpenInvoice={setViewingInvoiceId} />;
     case "Reports": return <ReportsPage invoiceRows={invoiceRows} transactionRows={transactionRows} projectRows={projectRows} leadRows={leadRows} clientRows={clientRows} paymentRows={paymentRows} />;
     case "AI Assistant": return <AssistantPage invoices={invoiceRows} inventory={inventoryRows} projects={projectRows} transactions={transactionRows} />;
     case "Settings": return <><SettingsWorkspace /><RoleManagementPanel /><AccountLifecyclePanel openRequest={profileRequest} /></>;

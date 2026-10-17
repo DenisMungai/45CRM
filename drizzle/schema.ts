@@ -305,6 +305,29 @@ export const invoiceDocuments = pgTable("invoice_documents", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [uniqueIndex("invoice_documents_invoice_idx").on(t.invoiceId), index("invoice_documents_workspace_idx").on(t.workspaceId)]);
 
+// Recurring services billed to clients: hosting, domains, maintenance retainers, SSL, email, etc.
+// `amount` is what the client is charged per cycle, `cost` what the provider charges us.
+export const renewals = pgTable("renewals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+  contractId: uuid("contract_id").references(() => contracts.id, { onDelete: "set null" }),
+  clientName: varchar("client_name", { length: 180 }).notNull(),
+  type: varchar("type", { length: 32 }).default("hosting").notNull(),
+  name: varchar("name", { length: 180 }).notNull(),
+  provider: varchar("provider", { length: 120 }),
+  cycle: varchar("cycle", { length: 16 }).default("yearly").notNull(),
+  amount: integer("amount").default(0).notNull(),
+  cost: integer("cost").default(0).notNull(),
+  nextDueDate: timestamp("next_due_date", { withTimezone: true }).notNull(),
+  status: varchar("status", { length: 16 }).default("active").notNull(),
+  notes: text("notes"),
+  lastInvoiceId: uuid("last_invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  lastInvoicedAt: timestamp("last_invoiced_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("renewals_workspace_idx").on(t.workspaceId), index("renewals_due_idx").on(t.workspaceId, t.nextDueDate)]);
+
 export const files = pgTable("files", {
   id: uuid("id").defaultRandom().primaryKey(),
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),

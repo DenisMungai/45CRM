@@ -786,3 +786,7 @@ button { border: 0; }
 .client-detail-actions .text-button { display: inline-flex; align-items: center; white-space: nowrap; }
 .feed-row { grid-template-columns: 10px minmax(0,1fr) auto minmax(48px, auto); }
 .feed-row .status { white-space: nowrap; }
+.cell-sub { display: block; margin-top: 2px; color: #7f868b; font-size: 8px; font-weight: 500; }
+.renewal-help { display: flex; align-items: center; gap: 6px; margin: 10px 2px 0; }
+.due-cell .status { margin-left: 6px; }
+.record-edit:disabled, .record-delete:disabled { opacity: .4; cursor: not-allowed; }
