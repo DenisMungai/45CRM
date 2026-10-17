@@ -1,5 +1,8 @@
 import { relations } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, customType, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+
+/** Raw file bytes. Files live in Postgres so they survive serverless deploys without extra storage. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType() { return "bytea"; } });
 import type { ContractFields } from "../shared/contract.js";
 import type { InvoiceFields } from "../shared/invoice.js";
 
@@ -38,6 +41,12 @@ export const workspaces = pgTable("workspaces", {
   businessPhone: varchar("business_phone", { length: 40 }),
   businessAddress: varchar("business_address", { length: 255 }),
   leadWebhookSecret: varchar("lead_webhook_secret", { length: 64 }),
+  mpesaWebhookSecret: varchar("mpesa_webhook_secret", { length: 64 }),
+  // Automatic payment-reminder emails for sent invoices (see server/reminders.ts).
+  remindersEnabled: boolean("reminders_enabled").default(false).notNull(),
+  defaultHourlyRate: integer("default_hourly_rate").default(0).notNull(),
+  // KES per one unit of each foreign currency, the default rate on new invoices and quotes.
+  exchangeRates: jsonb("exchange_rates").$type<Record<string, number>>().default({}).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [uniqueIndex("workspaces_slug_idx").on(t.slug)]);
@@ -85,6 +94,9 @@ export const clients = pgTable("clients", {
   phone: varchar("phone", { length: 40 }),
   status: varchar("status", { length: 32 }).default("active").notNull(),
   notes: text("notes"),
+  // Client portal: off until shared; bumping the version revokes every link issued before.
+  portalEnabled: boolean("portal_enabled").default(false).notNull(),
+  portalVersion: integer("portal_version").default(1).notNull(),
   createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -130,10 +142,32 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("projects_workspace_idx").on(t.workspaceId), index("projects_status_idx").on(t.workspaceId, t.status)]);
 
+// Deliverable stages of a project. A milestone can be sent to the client for approval in the portal.
+export const projectMilestones = pgTable("project_milestones", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 200 }).notNull(),
+  description: text("description"),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  amount: integer("amount").default(0).notNull(),
+  // pending | in-progress | awaiting-approval | approved | changes-requested
+  status: varchar("status", { length: 24 }).default("pending").notNull(),
+  clientNote: text("client_note"),
+  decidedByName: varchar("decided_by_name", { length: 160 }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("milestones_project_idx").on(t.projectId), index("milestones_workspace_idx").on(t.workspaceId)]);
+
 export const projectTasks = pgTable("project_tasks", {
   id: uuid("id").defaultRandom().primaryKey(),
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  milestoneId: uuid("milestone_id").references(() => projectMilestones.id, { onDelete: "set null" }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   assigneeUserId: uuid("assignee_user_id").references(() => users.id, { onDelete: "set null" }),
   title: varchar("title", { length: 220 }).notNull(),
   status: varchar("status", { length: 32 }).default("todo").notNull(),
@@ -327,6 +361,116 @@ export const renewals = pgTable("renewals", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("renewals_workspace_idx").on(t.workspaceId), index("renewals_due_idx").on(t.workspaceId, t.nextDueDate)]);
+
+// Scope changes and revision rounds raised by the team or the client (via the portal).
+export const changeRequests = pgTable("change_requests", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 200 }).notNull(),
+  description: text("description"),
+  // revision (counts against the contract's included rounds) | change (new scope, priced separately)
+  kind: varchar("kind", { length: 16 }).default("change").notNull(),
+  source: varchar("source", { length: 16 }).default("internal").notNull(),
+  requestedByName: varchar("requested_by_name", { length: 160 }),
+  // requested | approved | declined | done
+  status: varchar("status", { length: 16 }).default("requested").notNull(),
+  estimateHours: integer("estimate_hours").default(0).notNull(),
+  amount: integer("amount").default(0).notNull(),
+  invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("change_requests_project_idx").on(t.projectId), index("change_requests_workspace_idx").on(t.workspaceId)]);
+
+export const timeEntries = pgTable("time_entries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  changeRequestId: uuid("change_request_id").references(() => changeRequests.id, { onDelete: "set null" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  description: varchar("description", { length: 300 }).notNull(),
+  minutes: integer("minutes").notNull(),
+  workDate: timestamp("work_date", { withTimezone: true }).notNull(),
+  billable: boolean("billable").default(true).notNull(),
+  hourlyRate: integer("hourly_rate").default(0).notNull(),
+  invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("time_entries_project_idx").on(t.projectId), index("time_entries_workspace_idx").on(t.workspaceId)]);
+
+// Line items, sharing and the client's decision for a quote (one row per quote).
+export const quoteDocuments = pgTable("quote_documents", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  quoteId: uuid("quote_id").notNull().references(() => quotes.id, { onDelete: "cascade" }),
+  fields: jsonb("fields").$type<InvoiceFields>().default({} as InvoiceFields).notNull(),
+  shareVersion: integer("share_version").default(1).notNull(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  lastSentChannel: varchar("last_sent_channel", { length: 16 }),
+  // accepted | declined (null until the client decides)
+  decision: varchar("decision", { length: 16 }),
+  decidedByName: varchar("decided_by_name", { length: 160 }),
+  decisionNote: text("decision_note"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("quote_documents_quote_idx").on(t.quoteId), index("quote_documents_workspace_idx").on(t.workspaceId)]);
+
+// One row per reminder stage and channel per invoice, so a reminder is never sent twice.
+export const invoiceReminders = pgTable("invoice_reminders", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  stage: varchar("stage", { length: 24 }).notNull(),
+  channel: varchar("channel", { length: 16 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull(),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("invoice_reminders_stage_idx").on(t.invoiceId, t.stage, t.channel), index("invoice_reminders_workspace_idx").on(t.workspaceId)]);
+
+// M-Pesa payments received (Daraja C2B confirmations or pasted SMS), matched to invoices.
+export const mpesaTransactions = pgTable("mpesa_transactions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  transId: varchar("trans_id", { length: 40 }).notNull(),
+  amount: integer("amount").notNull(),
+  accountRef: varchar("account_ref", { length: 80 }),
+  payerName: varchar("payer_name", { length: 160 }),
+  payerPhone: varchar("payer_phone", { length: 40 }),
+  paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+  source: varchar("source", { length: 16 }).notNull(),
+  invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  paymentId: uuid("payment_id").references(() => payments.id, { onDelete: "set null" }),
+  // matched | unmatched | ignored
+  status: varchar("status", { length: 16 }).default("unmatched").notNull(),
+  raw: jsonb("raw"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("mpesa_transactions_trans_idx").on(t.workspaceId, t.transId), index("mpesa_transactions_workspace_idx").on(t.workspaceId)]);
+
+// Per-client vault: uploaded files, links, and logins (the secret is encrypted at rest).
+export const clientAssets = pgTable("client_assets", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  // file | link | credential
+  kind: varchar("kind", { length: 16 }).notNull(),
+  name: varchar("name", { length: 200 }).notNull(),
+  url: text("url"),
+  username: varchar("username", { length: 200 }),
+  secretEncrypted: text("secret_encrypted"),
+  notes: text("notes"),
+  mimeType: varchar("mime_type", { length: 120 }),
+  sizeBytes: integer("size_bytes").default(0).notNull(),
+  content: bytea("content"),
+  // internal | client (shown in the client portal; never allowed for credentials)
+  visibility: varchar("visibility", { length: 16 }).default("internal").notNull(),
+  // team | client (uploaded by the client through the portal)
+  source: varchar("source", { length: 16 }).default("team").notNull(),
+  uploadedByUserId: uuid("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("client_assets_client_idx").on(t.clientId), index("client_assets_workspace_idx").on(t.workspaceId)]);
 
 export const files = pgTable("files", {
   id: uuid("id").defaultRandom().primaryKey(),

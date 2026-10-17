@@ -18,6 +18,8 @@ import { ENV } from "./_core/env.js";
 import * as contractsDb from "./contracts.js";
 import { fetchDocumensoCertifiedPdf, verifyDocumensoWebhookSecret } from "./documenso.js";
 import { handleWhatsAppWebhookVerification, handleWhatsAppWebhookEvent } from "./whatsappWebhook.js";
+import { registerExtraRoutes } from "./extraRoutes.js";
+import { runPaymentReminders } from "./reminders.js";
 
 const app = express();
 const server = createServer(app);
@@ -151,6 +153,8 @@ app.post("/api/webhooks/documenso", async (req, res) => {
 app.get("/api/webhooks/whatsapp", handleWhatsAppWebhookVerification);
 app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookEvent);
 
+registerExtraRoutes(app);
+
 app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 
 const port = ENV.port;
@@ -169,3 +173,11 @@ if (ENV.nodeEnv === "production") {
 
 await fs.mkdir(path.resolve(process.cwd(), "uploads"), { recursive: true });
 server.listen(port, () => console.log(`45Creatives CRM running at ${ENV.appUrl}`));
+
+// Outside Vercel (which uses Cron, see vercel.json) the Node server sends payment reminders itself:
+// shortly after start and then every 6 hours. Each reminder is recorded, so repeats are skipped.
+if (!process.env.VERCEL && process.env.DISABLE_REMINDER_SCHEDULER !== "true") {
+  const runReminders = () => runPaymentReminders().then((result) => { if (result.sent || result.failed) console.log("Payment reminders:", result); }).catch((error) => console.error("Payment reminders failed:", error));
+  setTimeout(runReminders, 60_000).unref();
+  setInterval(runReminders, 6 * 60 * 60 * 1000).unref();
+}

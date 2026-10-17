@@ -790,3 +790,127 @@ button { border: 0; }
 .renewal-help { display: flex; align-items: center; gap: 6px; margin: 10px 2px 0; }
 .due-cell .status { margin-left: 6px; }
 .record-edit:disabled, .record-delete:disabled { opacity: .4; cursor: not-allowed; }
+
+/* --- Quotes, project workspace, vault, portal, M-Pesa, reminders ------------------------- */
+.quote-banner { margin: 0; padding: 10px 12px; border: 1px solid rgba(201,169,108,.3); border-radius: 9px; color: #e8d6b0; background: rgba(201,169,108,.08); font-size: 11px; }
+.quote-decision { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.quote-decision h2 { margin: 0; font-size: 14px; color: #f1eeea; }
+.quote-decision p { margin: 0; color: #a7aeb1; font-size: 10.5px; }
+.quote-decision label, .portal-form label { display: flex; flex-direction: column; gap: 5px; color: #b9bfc1; font-size: 10px; }
+.quote-decision input, .quote-decision textarea, .portal-form input, .portal-form textarea, .mpesa-paste textarea, .mpesa-paste select, .work-time-form input, .work-time-form select, .work-task select, .work-task-add input { padding: 7px 9px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; color: #eef0ed; background: rgba(0,0,0,.25); font: inherit; font-size: 10.5px; }
+.work-dialog { width: min(980px, 96vw); }
+.work-summary { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin: 10px 0; }
+.work-summary > div { display: flex; flex-direction: column; gap: 2px; padding: 9px 10px; border: 1px solid rgba(255,255,255,.07); border-radius: 9px; background: rgba(255,255,255,.025); }
+.work-summary span { color: #8f969b; font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+.work-summary strong { color: #eceeec; font-size: 15px; text-transform: capitalize; }
+.work-summary small { color: #8f969b; font-size: 8.5px; }
+.work-warning { margin: 0 0 8px; color: #e8c58a; }
+.work-tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(255,255,255,.08); margin-bottom: 10px; }
+.work-tabs button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 2px solid transparent; color: #9aa0a5; background: transparent; font-size: 10px; font-weight: 700; }
+.work-tabs button svg { width: 12px; height: 12px; }
+.work-tabs button.active { color: #fff; border-bottom-color: #c74d50; }
+.work-panel { display: flex; flex-direction: column; gap: 9px; }
+.work-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.work-panel-head p { margin: 0; flex: 1; }
+.work-milestone { border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,.02); }
+.work-milestone header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.work-milestone header > div:first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.work-milestone strong { color: #eceeec; font-size: 11px; }
+.work-milestone small { color: #8f969b; font-size: 8.5px; }
+.work-desc, .work-decision { margin: 6px 0 0; color: #a7aeb1; font-size: 9.5px; }
+.work-decision { color: #c9d9c9; }
+.work-tasks { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+.work-task { display: grid; grid-template-columns: 16px minmax(0,1fr) 130px 22px; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; color: #d5d8d8; font-size: 10px; }
+.work-task:hover { background: rgba(255,255,255,.03); }
+.work-task.done span { color: #6f767b; text-decoration: line-through; }
+.work-task-add { display: flex; gap: 6px; }
+.work-task-add input { flex: 1; }
+.icon-button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border-radius: 6px; color: #8f969b; background: transparent; }
+.icon-button:hover { color: #e56a6b; background: rgba(229,106,107,.1); }
+.icon-button svg { width: 11px; height: 11px; }
+.work-time-form { display: grid; grid-template-columns: 2fr repeat(5, minmax(0,1fr)) auto auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; }
+.work-time-form label { display: flex; flex-direction: column; gap: 4px; color: #a7aeb1; font-size: 9px; }
+.work-time-form .checkbox-field { flex-direction: row; align-items: center; }
+.work-subdialog { position: sticky; bottom: 0; margin-top: 12px; padding: 12px; border: 1px solid rgba(199,77,80,.35); border-radius: 10px; background: #15171a; box-shadow: 0 -12px 30px rgba(0,0,0,.4); }
+.work-subdialog h3 { margin: 0 0 8px; color: #f1eeea; font-size: 12px; }
+.cell-sub.danger { color: #e56a6b; }
+.vault-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 13px; margin-top: 13px; }
+.vault-card .panel-title { display: flex; align-items: center; gap: 6px; }
+.vault-body { display: flex; flex-direction: column; gap: 9px; padding: 12px 14px 14px; }
+.vault-body p { margin: 0; }
+.vault-actions { flex-wrap: wrap; justify-content: flex-start; }
+.vault-actions a { text-decoration: none; }
+.vault-upload input, .portal-upload input { display: none; }
+.vault-upload, .portal-upload label { cursor: pointer; }
+.vault-share { font-size: 9px; color: #a7aeb1; }
+.vault-form { padding: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; }
+.vault-list { display: flex; flex-direction: column; }
+.vault-item { display: grid; grid-template-columns: 26px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.vault-item:last-child { border-bottom: 0; }
+.vault-icon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: #c7cccb; background: rgba(255,255,255,.05); }
+.vault-icon svg { width: 12px; height: 12px; }
+.vault-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vault-main strong { color: #eceeec; font-size: 10px; }
+.vault-main small { overflow: hidden; color: #8f969b; font-size: 8.5px; text-overflow: ellipsis; white-space: nowrap; }
+.vault-secret { align-self: flex-start; padding: 2px 6px; border-radius: 5px; color: #f3e3b8; background: rgba(201,169,108,.12); font-size: 10px; }
+.record-edit.is-on { border-color: rgba(105,185,130,.35); color: #a9dcb8; }
+.mpesa-panel { margin-bottom: 13px; }
+.mpesa-body { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; }
+.mpesa-body p { margin: 0; }
+.mpesa-paste { display: grid; grid-template-columns: 2fr 1fr auto; gap: 9px; align-items: end; }
+.mpesa-paste label { display: flex; flex-direction: column; gap: 4px; color: #a7aeb1; font-size: 9px; }
+.reminder-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; padding: 10px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: rgba(255,255,255,.025); }
+.reminder-box > div:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.reminder-box strong { display: flex; align-items: center; gap: 5px; color: #eceeec; font-size: 10px; }
+.reminder-box span { color: #8f969b; font-size: 8.5px; }
+.settings-warning { color: #e8c58a !important; }
+.portal-shell { width: min(900px, 100%); }
+.portal { display: flex; flex-direction: column; gap: 16px; }
+.portal-head h1 { margin: 4px 0; color: #f4f4f3; font-size: 22px; }
+.portal-head p { margin: 0; color: #a7aeb1; font-size: 11px; }
+.portal-stats { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 9px; }
+.portal-stats > div { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(255,255,255,.03); }
+.portal-stats span { color: #8f969b; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+.portal-stats strong { color: #f1eeea; font-size: 14px; }
+.portal-section h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; color: #e6e7e5; font-size: 13px; }
+.portal-section h2 svg { width: 14px; height: 14px; color: #d68587; }
+.portal-card { padding: 12px 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(255,255,255,.025); margin-bottom: 9px; }
+.portal-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.portal-card-head strong { color: #f1eeea; font-size: 12px; }
+.portal-card-head small { display: block; color: #8f969b; font-size: 9px; }
+.portal-progress { display: flex; align-items: center; gap: 8px; min-width: 160px; }
+.portal-progress div { flex: 1; height: 6px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+.portal-progress i { display: block; height: 100%; background: #c74d50; }
+.portal-progress span { color: #eceeec; font-size: 10px; font-weight: 800; }
+.portal-milestones { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+.portal-milestones li { padding: 9px 11px; border-left: 2px solid rgba(255,255,255,.12); background: rgba(0,0,0,.15); border-radius: 0 8px 8px 0; }
+.portal-milestones li.approved { border-left-color: #69b982; }
+.portal-milestones li.awaiting-approval { border-left-color: #c9a96c; }
+.portal-milestones li > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.portal-milestones strong { color: #eceeec; font-size: 11px; }
+.portal-milestones small { color: #8f969b; font-size: 9px; }
+.portal-milestones p { margin: 5px 0 0; color: #a7aeb1; font-size: 10px; }
+.portal-milestones .contract-actions-row { margin-top: 8px; }
+.portal-form { display: flex; flex-direction: column; gap: 8px; margin-top: 9px; }
+.portal-changes { margin-top: 10px; }
+.portal-changes h3 { margin: 0 0 5px; color: #b9bfc1; font-size: 10px; }
+.portal-changes div { display: flex; justify-content: space-between; padding: 4px 0; color: #d5d8d8; font-size: 10px; }
+.portal-request { margin-top: 8px; display: inline-flex; align-items: center; gap: 5px; }
+.portal-list { display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; overflow: hidden; }
+.portal-list > div { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.05); color: #d5d8d8; font-size: 10.5px; }
+.portal-list > div:last-child { border-bottom: 0; }
+.portal-list strong { color: #f1eeea; font-size: 11px; }
+.portal-list small { display: block; color: #8f969b; font-size: 9px; }
+.portal-list a, .portal-list button { text-decoration: none; }
+.portal-upload { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+@media (max-width: 760px) {
+  .work-summary, .portal-stats { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .work-time-form, .mpesa-paste { grid-template-columns: 1fr 1fr; }
+  .vault-grid { grid-template-columns: 1fr; }
+  .portal-list > div { grid-template-columns: 1fr auto; }
+  .work-task { grid-template-columns: 16px minmax(0,1fr) 22px; }
+  .work-task select { display: none; }
+}
+
+/* URLs, secrets and code samples inside settings labels keep their real (case-sensitive) text. */
+.settings-fields .contract-link-box, .settings-fields .contract-link-box span, .settings-fields code, .settings-fields .webhook-snippet { text-transform: none; letter-spacing: normal; }

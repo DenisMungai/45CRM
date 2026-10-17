@@ -38,6 +38,7 @@ import {
   handleWhatsAppWebhookVerification,
   handleWhatsAppWebhookEvent,
 } from "../server/whatsappWebhook.js";
+import { registerExtraRoutes } from "../server/extraRoutes.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -249,6 +250,9 @@ app.post("/api/webhooks/documenso", async (req, res) => {
 // ── WhatsApp webhook ─────────────────────────────────────────────────────────
 app.get("/api/webhooks/whatsapp", handleWhatsAppWebhookVerification);
 app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookEvent);
+
+// ── Cron, M-Pesa callbacks, vault and portal files (shared with server/index.ts)
+registerExtraRoutes(app);
 
 // ── tRPC ──────────────────────────────────────────────────────────────────────
 app.use(

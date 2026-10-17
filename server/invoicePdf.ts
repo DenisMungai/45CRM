@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { INVOICE_TAGLINE, formatInvoiceMoney, invoiceTermRuns, type InvoiceView } from "../shared/invoice.js";
+import { INVOICE_TAGLINE, currencyPrefix, formatInvoiceMoney as money, formatPlainAmount, invoiceTermRuns, type InvoiceView } from "../shared/invoice.js";
 
 const W = 595.28; // A4 at 72dpi
 const H = 841.89;
@@ -84,7 +84,12 @@ function labelValue(label: string, value: string, bold: PDFFont, regular: PDFFon
 
 export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`Invoice ${pdfSafe(view.number)}`);
+  const isQuote = view.kind === "quote";
+  const docName = isQuote ? "Quotation" : "Invoice";
+  // Every amount is shown in the document's own currency.
+  const formatInvoiceMoney = (value: number) => money(value, view.currency);
+  const prefix = currencyPrefix(view.currency);
+  doc.setTitle(`${docName} ${pdfSafe(view.number)}`);
   doc.setProducer("45Creatives CRM");
   doc.setAuthor(pdfSafe(view.business.name));
   const regular = await doc.embedFont(StandardFonts.Helvetica);
@@ -116,13 +121,13 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   const contactLines = [view.business.address, [view.business.email, view.business.phone].filter(Boolean).join(" \u00B7 "), view.business.website].filter(Boolean);
   for (const line of contactLines) { leftY -= 10.5; text(line, M, leftY, 7.5, regular, MUTED); }
 
-  text("INVOICE", W - M, y - 30, 30, bold, INK, "right");
+  text(isQuote ? "QUOTATION" : "INVOICE", W - M, y - 30, 30, bold, INK, "right");
   let rightY = y - 30 - 14;
   const statusLabel = "STATUS: ";
   const statusWidth = bold.widthOfTextAtSize(pdfSafe(view.status), 8.5);
-  text(pdfSafe(view.status), W - M, rightY, 8.5, bold, view.status === "PAID" ? INK : RED, "right");
+  text(pdfSafe(view.status), W - M, rightY, 8.5, bold, view.status === "PAID" || view.status === "ACCEPTED" ? INK : RED, "right");
   text(statusLabel.trim(), W - M - statusWidth - 4, rightY, 8.5, regular, INK, "right");
-  for (const line of [`Invoice no. ${view.number}`, `Issue date ${view.issueDate}`, `Due date ${view.dueDate}`]) { rightY -= 11.5; text(line, W - M, rightY, 8.5, regular, INK, "right"); }
+  for (const line of [`${docName} no. ${view.number}`, `Issue date ${view.issueDate}`, `${isQuote ? "Valid until" : "Due date"} ${view.dueDate}`, ...(view.currency !== "KES" ? [`Currency ${view.currency}`] : [])]) { rightY -= 11.5; text(line, W - M, rightY, 8.5, regular, INK, "right"); }
 
   y = Math.min(leftY, rightY) - 12;
   page.drawRectangle({ x: M, y: y - 2, width: CW, height: 2.2, color: RED });
@@ -152,7 +157,7 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   ensure(headHeight + bodyHeight + 30);
   rect(M, y, CW, headHeight + bodyHeight, undefined, RULE);
   rect(M, y, CW, headHeight, PANEL, RULE);
-  text("BILL TO", M + pad, y - 13, 7.5, bold, INK);
+  text(isQuote ? "PREPARED FOR" : "BILL TO", M + pad, y - 13, 7.5, bold, INK);
   text("PROJECT DETAILS", M + colWidth + pad, y - 13, 7.5, bold, INK);
   const drawLines = (lines: Line[], x: number) => {
     let by = y - headHeight - pad - 8;
@@ -173,12 +178,12 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
     rect(M, y, CW, 20, BLACK);
     text("DESCRIPTION", M + 8, y - 13, 7, bold, WHITE);
     text("QTY", cols.qty + 6, y - 13, 7, bold, WHITE);
-    text("UNIT PRICE (KSh)", cols.unit + 8, y - 13, 7, bold, WHITE);
-    text("AMOUNT (KSh)", cols.amount + 8, y - 13, 7, bold, WHITE);
+    text(`UNIT PRICE (${prefix})`, cols.unit + 8, y - 13, 7, bold, WHITE);
+    text(`AMOUNT (${prefix})`, cols.amount + 8, y - 13, 7, bold, WHITE);
     y -= 20;
   };
   ensure(20 + 40 + 24);
-  text("ITEMIZED SERVICES", M, y - 8, 7.5, bold, INK);
+  text(isQuote ? "QUOTED SERVICES" : "ITEMIZED SERVICES", M, y - 8, 7.5, bold, INK);
   y -= 16;
   tableHeader();
   view.items.forEach((item, index) => {
@@ -190,8 +195,8 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
     descLines.forEach((line, i) => text(line, M + 8, y - 15 - i * 11, bodySize));
     const qty = Number.isInteger(item.quantity) ? String(item.quantity) : String(Number(item.quantity.toFixed(2)));
     text(qty, cols.qty + 6, y - 15, bodySize);
-    text(formatInvoiceMoney(item.unitPrice).replace("KSh ", ""), cols.unit + 8, y - 15, bodySize);
-    text(formatInvoiceMoney(item.amount).replace("KSh ", ""), cols.amount + 8, y - 15, bodySize);
+    text(formatPlainAmount(item.unitPrice), cols.unit + 8, y - 15, bodySize);
+    text(formatPlainAmount(item.amount), cols.amount + 8, y - 15, bodySize);
     y -= rowHeight;
   });
   y -= 16;
@@ -207,7 +212,12 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   ];
   if (!instr.length) instr.push({ text: "Payment details available on request." });
   instr.push(...labelValue("Reference:", `Please quote ${view.number} when paying${view.payment.confirmationContact ? ` and send confirmation to ${view.payment.confirmationContact}` : ""}.`, bold, regular, 8, innerW));
-  const record: Line[] = view.paymentRecord
+  if (isQuote) {
+    instr.length = 0;
+    instr.push(...labelValue("Acceptance:", view.decision ? `${view.status === "ACCEPTED" ? "Accepted" : "Declined"} by ${view.decision.by} on ${view.decision.at}.${view.decision.note ? ` Note: ${view.decision.note}` : ""}` : `Accept this quotation online with the link you received, or reply to confirm. Valid until ${view.dueDate}.`, bold, regular, 8, innerW));
+    instr.push(...labelValue("Reference:", `Please quote ${view.number} in any correspondence.`, bold, regular, 8, innerW));
+  }
+  const record: Line[] = isQuote ? [] : view.paymentRecord
     ? [
         ...labelValue("Payment date:", view.paymentRecord.date, bold, regular, 8, innerW),
         ...labelValue("Method:", view.paymentRecord.method, bold, regular, 8, innerW),
@@ -223,7 +233,7 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   const blockTop = y;
   rect(M, blockTop, leftW, blockHeight, PANEL, RULE);
   let ly = blockTop - 16;
-  text("PAYMENT INSTRUCTIONS", M + pad, ly, 7.5, bold);
+  text(isQuote ? "NEXT STEPS" : "PAYMENT INSTRUCTIONS", M + pad, ly, 7.5, bold);
   const drawSmall = (lines: Line[]) => {
     for (const line of lines) {
       ly -= 11;
@@ -233,9 +243,11 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
     }
   };
   drawSmall(instr);
-  ly -= 18;
-  text("PAYMENT RECORD", M + pad, ly, 7.5, bold);
-  drawSmall(record);
+  if (!isQuote) {
+    ly -= 18;
+    text("PAYMENT RECORD", M + pad, ly, 7.5, bold);
+    drawSmall(record);
+  }
 
   let ry = blockTop;
   const totalRow = (label: string, value: string) => {
@@ -248,13 +260,15 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   totalRow("Discount (if applicable)", formatInvoiceMoney(view.totals.discount));
   rect(rightX, ry, rightW, 28, PANEL);
   page.drawLine({ start: { x: rightX, y: ry }, end: { x: rightX + rightW, y: ry }, thickness: 1.2, color: RED });
-  text("INVOICE TOTAL", rightX + 8, ry - 18, 9, bold);
+  text(isQuote ? "QUOTATION TOTAL" : "INVOICE TOTAL", rightX + 8, ry - 18, 9, bold);
   text(formatInvoiceMoney(view.totals.total), rightX + rightW - 8, ry - 19, 12, bold, RED, "right");
   ry -= 28;
-  totalRow("Deposit / payments received", view.totals.received > 0 ? `(${formatInvoiceMoney(view.totals.received)})` : formatInvoiceMoney(0));
-  rect(rightX, ry, rightW, 28, PANEL);
-  text("BALANCE DUE", rightX + 8, ry - 18, 9, bold);
-  text(formatInvoiceMoney(view.totals.balance), rightX + rightW - 8, ry - 19, 12, bold, RED, "right");
+  if (!isQuote) {
+    totalRow("Deposit / payments received", view.totals.received > 0 ? `(${formatInvoiceMoney(view.totals.received)})` : formatInvoiceMoney(0));
+    rect(rightX, ry, rightW, 28, PANEL);
+    text("BALANCE DUE", rightX + 8, ry - 18, 9, bold);
+    text(formatInvoiceMoney(view.totals.balance), rightX + rightW - 8, ry - 19, 12, bold, RED, "right");
+  }
   y = blockTop - blockHeight - 18;
 
   // --- Terms & notes ------------------------------------------------------------------------

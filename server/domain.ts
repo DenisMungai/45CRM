@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
-import { clients, leads, projects, quotes, invoices, payments, inventoryItems, transactions, users, workspaceMembers } from "../drizzle/schema.js";
+import { clients, leads, projects, quotes, quoteDocuments, invoices, payments, inventoryItems, transactions, users, workspaceMembers } from "../drizzle/schema.js";
 import { syncPaymentTransaction } from "./crm.js";
 import { listInvoiceSummaries, refreshInvoiceSummary, type InvoiceSummary } from "./invoiceDocs.js";
 
@@ -82,10 +82,13 @@ async function syncProjects(db: Db, workspaceId: string, userId: string, rows: R
   }
 }
 async function syncQuotes(db: Db, workspaceId: string, rows: Row[], find: Lookups) {
+  // A quote with line items keeps the total worked out from them; the row's value is only a summary.
+  const detailed = new Set((await db.select({ quoteId: quoteDocuments.quoteId }).from(quoteDocuments).where(eq(quoteDocuments.workspaceId, workspaceId))).map((d) => d.quoteId));
   for (const r of rows) {
     const total = money(value(r,3));
-    const set = { number: value(r,0) || `QT-${Date.now()}`, clientId: find.clientId(value(r,1)), projectId: find.projectId(value(r,2)), status: normalize(value(r,4) || "draft"), subtotal: total, total, validUntil: optionalDate(value(r,6)), updatedAt: new Date() };
-    await db.insert(quotes).values({ id: uuid(r.id), workspaceId, ...set }).onConflictDoUpdate({ target: quotes.id, set, where: eq(quotes.workspaceId, workspaceId) });
+    const amounts = detailed.has(r.id) ? {} : { subtotal: total, total };
+    const set = { number: value(r,0) || `QT-${Date.now()}`, clientId: find.clientId(value(r,1)), projectId: find.projectId(value(r,2)), status: normalize(value(r,4) || "draft"), ...amounts, validUntil: optionalDate(value(r,6)), updatedAt: new Date() };
+    await db.insert(quotes).values({ id: uuid(r.id), workspaceId, subtotal: total, total, ...set }).onConflictDoUpdate({ target: quotes.id, set, where: eq(quotes.workspaceId, workspaceId) });
   }
 }
 /** Upserts payments and reports what changed, so the ledger and invoice totals can be refreshed
@@ -176,7 +179,7 @@ export function invoiceTone(status: InvoiceSummary["status"]) {
  * - leads:        name, company, source, value, status label, status, assigned to, email, phone
  * - projects:     name, client, progress, status label, status, due date, budget
  * - quotes:       number, client, project, value, status label, status, valid until
- * - invoices:     number, client, issued, due, total, display status, tone, balance
+ * - invoices:     number, client, issued, due, total, display status, tone, balance (amounts in KES)
  * - payments:     number, client, invoice, date, amount, method, status label, status
  * - inventory:    item, category, sku, qty, unit cost, stock value, stock label, tone
  * - transactions: date, reference, description, type label, amount, positive | negative | neutral
@@ -197,14 +200,14 @@ export async function listDomainRows(workspaceId: string) {
   const memberNames = new Map(members.map(r => [r.id, r.name]));
   const invoicesById = new Map(invoiceSummaries.map(i => [i.id, i]));
   const outstandingByClient = new Map<string, number>();
-  for (const i of invoiceSummaries) if (i.status === "UNPAID" || i.status === "PART-PAID" || i.status === "OVERDUE") outstandingByClient.set(key(i.clientName), (outstandingByClient.get(key(i.clientName)) || 0) + i.balance);
+  for (const i of invoiceSummaries) if (i.status === "UNPAID" || i.status === "PART-PAID" || i.status === "OVERDUE") outstandingByClient.set(key(i.clientName), (outstandingByClient.get(key(i.clientName)) || 0) + i.balanceKes);
   const name = (map: Map<string, string>, id: string | null) => id ? map.get(id) || "" : "";
   return [
     ...c.map(r=>({id:r.id,tableName:"clients",recordData:[r.name,r.contactName||"",r.email||"",r.phone||"",moneyText(outstandingByClient.get(key(r.name)) || 0),titleCase(r.status),r.status]})),
     ...l.map(r=>({id:r.id,tableName:"leads",recordData:[r.name,r.company||"",r.source||"",moneyText(r.estimatedValue),titleCase(r.status),r.status,name(memberNames, r.assignedToUserId)||"Unassigned",r.email||"",r.phone||""]})),
     ...p.map(r=>({id:r.id,tableName:"projects",recordData:[r.name,name(clientNames, r.clientId),String(r.progress),titleCase(r.status),r.status,dayText(r.dueDate),moneyText(r.budget)]})),
     ...q.map(r=>({id:r.id,tableName:"quotes",recordData:[r.number,name(clientNames, r.clientId),name(projectNames, r.projectId),moneyText(r.total),titleCase(r.status),r.status,dayText(r.validUntil)]})),
-    ...invoiceSummaries.map(i=>({id:i.id,tableName:"invoices",recordData:[i.number,i.clientName,dayText(i.issueDate),dayText(i.dueDate),moneyText(i.total),i.status,invoiceTone(i.status),moneyText(i.balance)]})),
+    ...invoiceSummaries.map(i=>({id:i.id,tableName:"invoices",recordData:[i.number,i.clientName,dayText(i.issueDate),dayText(i.dueDate),moneyText(i.totalKes),i.status,invoiceTone(i.status),moneyText(i.balanceKes)]})),
     ...pa.map(r=>{ const invoice = r.invoiceId ? invoicesById.get(r.invoiceId) : undefined; return {id:r.id,tableName:"payments",recordData:[r.number,name(clientNames, r.clientId)||invoice?.clientName||"",invoice?.number||"",dayText(r.paidAt),moneyText(r.amount),r.method||"",titleCase(r.status),r.status]}; }),
     ...inv.map(r=>({id:r.id,tableName:"inventory",recordData:[r.name,r.category,r.sku||"",String(r.quantity),moneyText(r.unitCost),moneyText(r.quantity*r.unitCost),r.quantity<=r.reorderLevel?(r.quantity===0?"Out of Stock":"Low Stock"):"In Stock",r.quantity===0?"overdue":r.quantity<=r.reorderLevel?"pending":"active"]})),
     ...t.map(r=>({id:r.id,tableName:"transactions",recordData:[dayText(r.transactionDate),r.reference||"",r.description,titleCase(r.type),moneyText(r.amount),r.type==="income"?"positive":r.type==="transfer"?"neutral":"negative"]})),

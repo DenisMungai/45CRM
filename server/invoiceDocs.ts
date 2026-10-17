@@ -5,7 +5,7 @@ import { clients, invoiceDocuments, invoices, payments, workspaces } from "../dr
 import { ENV } from "./_core/env.js";
 import { buildWhatsAppLink } from "./whatsappDelivery.js";
 import {
-  buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceMoney, INVOICE_NUMBER_PREFIX, nextInvoiceNumberFrom, nextStoredInvoiceStatus, paymentInstructionKeys,
+  buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceMoney, INVOICE_NUMBER_PREFIX, nextInvoiceNumberFrom, nextStoredInvoiceStatus, paymentInstructionKeys, rateOf, receivedInDocCurrency,
   type InvoiceDisplayStatus, type InvoiceFields, type InvoiceView,
 } from "../shared/invoice.js";
 
@@ -25,6 +25,8 @@ export type InvoiceSummary = {
   id: string; number: string; clientName: string; issueDate: Date; dueDate: Date | null;
   total: number; received: number; balance: number; status: InvoiceDisplayStatus;
   hasDocument: boolean; sentAt: Date | null; lastSentChannel: string | null;
+  /** The invoice's own currency (total/received/balance are in it) and the same figures in KES. */
+  currency: string; exchangeRate: number; totalKes: number; balanceKes: number;
 };
 
 /** One row per invoice for the Invoices page, with the same totals and status as the invoice itself. */
@@ -44,16 +46,19 @@ export async function listInvoiceSummaries(workspaceId: string): Promise<Invoice
     const document = documents.get(invoice.id);
     const fields = document ? withDefaults(document.fields as Partial<InvoiceFields>) : null;
     const payable = fields ? computeInvoiceTotals(fields.items, fields.discount).total : invoice.total;
-    const paid = paidByInvoice.get(invoice.id) || 0;
+    const rate = rateOf(fields);
+    const paid = receivedInDocCurrency(payable, paidByInvoice.get(invoice.id) || 0, rate);
     // Same rule as the invoice sheet: one marked Paid by hand counts as fully settled.
     const received = invoice.status === "paid" ? Math.max(paid, payable) : paid;
+    const balance = Math.max(0, Math.round((payable - received) * 100) / 100);
     return {
       id: invoice.id, number: invoice.number,
       clientName: fields?.clientName || (invoice.clientId ? clientNames.get(invoice.clientId) || "" : ""),
       issueDate: invoice.issueDate, dueDate: invoice.dueDate,
-      total: payable, received, balance: Math.max(0, payable - received),
+      total: payable, received, balance,
       status: deriveInvoiceStatus({ storedStatus: invoice.status, total: payable, received, dueDate: invoice.dueDate, sent: Boolean(document?.sentAt) }),
       hasDocument: Boolean(document), sentAt: document?.sentAt ?? null, lastSentChannel: document?.lastSentChannel ?? null,
+      currency: fields?.currency || "KES", exchangeRate: rate, totalKes: Math.round(payable * rate), balanceKes: Math.round(balance * rate),
     };
   });
 }
@@ -194,10 +199,12 @@ export async function refreshInvoiceSummary(workspaceId: string, invoiceId: stri
   if (!invoice) return;
   const fields = document ? withDefaults(document.fields as Partial<InvoiceFields>) : null;
   const total = fields ? computeInvoiceTotals(fields.items, fields.discount).total : invoice.total;
-  const received = paid.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  // amountPaid is stored in KES (what was actually received); the status compares in the invoice's currency.
+  const receivedKes = paid.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const received = receivedInDocCurrency(total, receivedKes, rateOf(fields));
   const status = nextStoredInvoiceStatus({ storedStatus: invoice.status, total, received, sent: Boolean(document?.sentAt) }) as InvoiceRow["status"];
-  if (total === invoice.total && received === invoice.amountPaid && status === invoice.status) return;
-  await getDb().update(invoices).set({ total, subtotal: total, amountPaid: received, status, updatedAt: new Date() }).where(and(eq(invoices.workspaceId, workspaceId), eq(invoices.id, invoiceId)));
+  if (total === invoice.total && receivedKes === invoice.amountPaid && status === invoice.status) return;
+  await getDb().update(invoices).set({ total, subtotal: total, amountPaid: receivedKes, status, updatedAt: new Date() }).where(and(eq(invoices.workspaceId, workspaceId), eq(invoices.id, invoiceId)));
 }
 
 // --- Share links -------------------------------------------------------------------------------
@@ -238,7 +245,7 @@ export async function loadInvoiceBundleByToken(token: string): Promise<InvoiceBu
 function summaryLines(view: InvoiceView) {
   return [
     view.project.name ? `Project: ${view.project.name}` : null,
-    `Amount due: ${formatInvoiceMoney(view.totals.balance)}`,
+    `Amount due: ${formatInvoiceMoney(view.totals.balance, view.currency)}`,
     `Due date: ${view.dueDate}`,
   ].filter((line): line is string => Boolean(line));
 }

@@ -20,10 +20,19 @@ import { defaultContractFields, newSigningToken, type ContractFields } from "./c
 import { renderContractPdf } from "./contractPdf.js";
 import * as invoiceDocs from "./invoiceDocs.js";
 import { renderInvoicePdf } from "./invoicePdf.js";
-import { defaultInvoiceFields, type InvoiceFields } from "../shared/invoice.js";
+import { CURRENCIES, defaultInvoiceFields, type InvoiceFields } from "../shared/invoice.js";
 import { ENV } from "./_core/env.js";
 import { hashPassword, issueSession, verifyPassword } from "./auth.js";
 import * as renewalsDb from "./renewals.js";
+import * as quoteDocs from "./quoteDocs.js";
+import * as work from "./projectWork.js";
+import * as reminders from "./reminders.js";
+import * as mpesa from "./mpesa.js";
+import * as vault from "./vault.js";
+import * as portal from "./portal.js";
+import { parseMpesaSms } from "../shared/mpesa.js";
+import { workspaces as workspacesTable } from "../drizzle/schema.js";
+import { eq } from "drizzle-orm";
 import { RENEWAL_CYCLES, RENEWAL_STATUSES, RENEWAL_TYPES } from "../shared/renewal.js";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -85,7 +94,10 @@ const invoiceFieldsInput = z.object({
   bankAccountNumber: z.string().trim().max(60).default(""),
   confirmationContact: z.string().trim().max(160).default(""),
   notes: z.string().trim().max(2000).default(""),
-}) satisfies z.ZodType<InvoiceFields>;
+  currency: z.enum(CURRENCIES).default("KES"),
+  // KES per one unit of the currency; forced to 1 for KES documents.
+  exchangeRate: z.number().positive().max(100_000).default(1),
+}).transform((fields) => ({ ...fields, exchangeRate: fields.currency === "KES" ? 1 : fields.exchangeRate })) satisfies z.ZodType<InvoiceFields>;
 const contractPartyInput = {
   clientId: z.string().uuid().nullable().optional(),
   projectId: z.string().uuid().nullable().optional(),
@@ -129,6 +141,26 @@ function requireOpenContract(contract: { status: string } | undefined): asserts 
 const rate = new Map<string, { count: number; resetAt: number }>();
 function assertRate(key: string) { const now = Date.now(); const current = rate.get(key); if (!current || current.resetAt < now) return rate.set(key, { count: 1, resetAt: now + 600_000 }); if (current.count >= 12) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "4S Insight is temporarily rate limited." }); current.count++; }
 function eventId() { return randomUUID(); }
+/** Simple per-key limit for public (portal / quote) actions. */
+const publicRate = new Map<string, { count: number; resetAt: number }>();
+function assertPublicRate(key: string, max = 30) {
+  const now = Date.now();
+  const current = publicRate.get(key);
+  if (!current || current.resetAt < now) { publicRate.set(key, { count: 1, resetAt: now + 3_600_000 }); return; }
+  if (current.count >= max) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many requests. Please try again later." });
+  current.count++;
+}
+/** Maps a module's error code to a clear TRPCError. */
+function fail(code: string, messages: Record<string, string>): never {
+  const notFound = code === "NOT_FOUND";
+  throw new TRPCError({ code: notFound ? "NOT_FOUND" : "PRECONDITION_FAILED", message: messages[code] || (notFound ? "Not found." : "That action isn't possible right now.") });
+}
+const uuidInput = z.object({ id: z.string().uuid() });
+const optionalDay = z.coerce.date().nullable().optional();
+async function invoiceCreatedActivity(workspaceId: string, userId: string, invoice: { id: string; number: string }, detail: string) {
+  await db.appendDashboardActivity(workspaceId, [{ recordId: invoice.id, tableName: "invoices", action: "Created", detail: `Invoice ${invoice.number} drafted ${detail}.`, actorUserId: userId }]);
+}
+
 /** Refuses a role change that would leave the workspace without an administrator, and never touches the owner. */
 async function assertRoleChangeAllowed(workspaceId: string, userIds: string[], role: "admin" | "member") {
   const members = await db.getWorkspaceMemberRoles(workspaceId);
@@ -156,8 +188,17 @@ export const appRouter = router({
     profile: protectedProcedure.query(async ({ ctx }) => {
       const workspace = await db.getWorkspace(ctx.user.workspaceId);
       if (!workspace) throw new TRPCError({ code: "NOT_FOUND", message: "Workspace not found." });
-      return { name: workspace.name, currency: workspace.currency, businessEmail: workspace.businessEmail, businessPhone: workspace.businessPhone, businessAddress: workspace.businessAddress };
+      return { name: workspace.name, currency: workspace.currency, businessEmail: workspace.businessEmail, businessPhone: workspace.businessPhone, businessAddress: workspace.businessAddress, remindersEnabled: workspace.remindersEnabled, defaultHourlyRate: workspace.defaultHourlyRate, exchangeRates: (workspace.exchangeRates || {}) as Record<string, number>, emailConfigured: isEmailDeliveryConfigured() };
     }),
+    updateSettings: adminProcedure.input(z.object({
+      remindersEnabled: z.boolean().optional(),
+      defaultHourlyRate: z.number().int().nonnegative().max(10_000_000).optional(),
+      exchangeRates: z.object({ USD: z.number().positive().max(100_000).optional(), EUR: z.number().positive().max(100_000).optional(), GBP: z.number().positive().max(100_000).optional() }).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      await db.getDb().update(workspacesTable).set({ ...input, updatedAt: new Date() }).where(eq(workspacesTable.id, ctx.user.workspaceId));
+      return { success: true as const };
+    }),
+    mpesaWebhook: adminProcedure.query(({ ctx }) => mpesa.mpesaWebhookUrls(ctx.user.workspaceId)),
     updateProfile: protectedProcedure.input(z.object({
       name: z.string().trim().min(1).max(160).optional(),
       currency: z.enum(["KES", "USD"]).optional(),
@@ -489,6 +530,227 @@ export const appRouter = router({
       if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This invoice link is invalid or has been replaced. Ask the sender for a new one." });
       const bytes = await renderInvoicePdf(bundle.view);
       return { filename: invoiceDocs.invoicePdfFilename(bundle.view), content: Buffer.from(bytes).toString("base64") };
+    }),
+  }),
+  reminders: router({
+    list: protectedProcedure.input(z.object({ invoiceId: z.string().uuid() })).query(({ ctx, input }) => reminders.listReminders(ctx.user.workspaceId, input.invoiceId)),
+    prepare: protectedProcedure.input(z.object({ invoiceId: z.string().uuid(), channel: z.enum(["email", "whatsapp"]) })).mutation(async ({ ctx, input }) => {
+      if (hasLocalAppUrl()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "APP_URL points to localhost, which your client cannot open. Set APP_URL to this CRM's public HTTPS address first." });
+      const result = await reminders.prepareManualReminder(ctx.user.workspaceId, input.invoiceId, input.channel);
+      if (result.error) fail(result.error, { NOT_FOUND: "Invoice not found.", NOT_SENT: "Send the invoice before reminding the client about it.", SETTLED: "This invoice is already paid or voided.", NO_EMAIL: "Add the client's email to the invoice details first.", NO_PHONE: "Add the client's phone number to the invoice details first." });
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.invoiceId, tableName: "invoices", action: "Reminder prepared", detail: `Payment reminder prepared for ${input.channel === "email" ? "email" : "WhatsApp"}.`, actorUserId: ctx.user.id }]);
+      return result;
+    }),
+  }),
+  mpesa: router({
+    list: protectedProcedure.query(({ ctx }) => mpesa.listMpesaTransactions(ctx.user.workspaceId)),
+    // Paste a confirmation SMS: it's read, stored once by its M-Pesa code, and matched to an invoice.
+    paste: protectedProcedure.input(z.object({ text: z.string().trim().min(10).max(2000), invoiceId: z.string().uuid().optional() })).mutation(async ({ ctx, input }) => {
+      const parsed = parseMpesaSms(input.text);
+      if (!parsed) throw new TRPCError({ code: "BAD_REQUEST", message: "That doesn't look like an M-Pesa payment confirmation. Paste the whole SMS, starting with the transaction code." });
+      const result = await mpesa.receiveMpesa(ctx.user.workspaceId, { ...parsed, paidAt: parsed.paidAt || new Date(), source: "sms", raw: { text: input.text } });
+      if (!result.duplicate && !result.matched && input.invoiceId && result.transaction) {
+        const error = await mpesa.matchMpesa(ctx.user.workspaceId, result.transaction.id, input.invoiceId);
+        if (error) fail(error, { NOT_FOUND: "Invoice not found." });
+        return { ...parsed, duplicate: false, matched: true };
+      }
+      return { ...parsed, duplicate: result.duplicate, matched: result.matched };
+    }),
+    match: protectedProcedure.input(z.object({ id: z.string().uuid(), invoiceId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const error = await mpesa.matchMpesa(ctx.user.workspaceId, input.id, input.invoiceId);
+      if (error) fail(error, { NOT_FOUND: "Payment or invoice not found.", ALREADY_MATCHED: "This M-Pesa payment is already recorded against an invoice." });
+      return { success: true as const };
+    }),
+    ignore: protectedProcedure.input(uuidInput).mutation(async ({ ctx, input }) => { await mpesa.ignoreMpesa(ctx.user.workspaceId, input.id); return { success: true as const }; }),
+  }),
+  quoteDocs: router({
+    nextNumber: protectedProcedure.query(({ ctx }) => quoteDocs.nextQuoteNumber(ctx.user.workspaceId)),
+    create: protectedProcedure.input(z.object({ fields: invoiceFieldsInput, validUntil: z.coerce.date() })).mutation(async ({ ctx, input }) => {
+      const quote = await quoteDocs.createQuoteWithDocument(ctx.user.workspaceId, ctx.user.id, input);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: quote.id, tableName: "quotes", action: "Created", detail: `Quotation ${quote.number} created for ${input.fields.clientName}.`, actorUserId: ctx.user.id }]);
+      return { quoteId: quote.id, number: quote.number };
+    }),
+    view: protectedProcedure.input(z.object({ quoteId: z.string().uuid() })).query(async ({ ctx, input }) => {
+      const bundle = await quoteDocs.loadQuoteBundle(ctx.user.workspaceId, input.quoteId);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This quote hasn't saved to the workspace yet. Give it a moment and try again." });
+      return { view: bundle.view, fields: bundle.fields, hasDocument: Boolean(bundle.document), sentAt: bundle.document?.sentAt ?? null, lastSentChannel: bundle.document?.lastSentChannel ?? null, issueDate: bundle.document?.createdAt ?? bundle.quote.createdAt, validUntil: bundle.quote.validUntil, viewUrl: bundle.document ? quoteDocs.quoteViewUrl(bundle.document) : null };
+    }),
+    save: protectedProcedure.input(z.object({ quoteId: z.string().uuid(), fields: invoiceFieldsInput, validUntil: z.coerce.date().optional() })).mutation(async ({ ctx, input }) => {
+      const bundle = await quoteDocs.loadQuoteBundle(ctx.user.workspaceId, input.quoteId);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "Quote not found." });
+      if (bundle.document?.decision) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `The client already ${bundle.document.decision} this quotation, so it can no longer be edited. Create a new quote instead.` });
+      await quoteDocs.saveQuoteDocument(ctx.user.workspaceId, ctx.user.id, input.quoteId, input.fields, input.validUntil);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.quoteId, tableName: "quotes", action: "Details saved", detail: `Quotation ${bundle.quote.number} details updated.`, actorUserId: ctx.user.id }]);
+      return { success: true as const };
+    }),
+    send: protectedProcedure.input(z.object({ quoteId: z.string().uuid(), channel: z.enum(["email", "whatsapp"]) })).mutation(async ({ ctx, input }) => {
+      if (hasLocalAppUrl()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "APP_URL points to localhost, which your client cannot open. Set APP_URL to this CRM's public HTTPS address first." });
+      const bundle = await quoteDocs.loadQuoteBundle(ctx.user.workspaceId, input.quoteId);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "Quote not found." });
+      if (!bundle.document) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Review and save the quotation details before sending." });
+      if (!bundle.view.totals.total) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add at least one priced line before sending." });
+      if (input.channel === "email" && !bundle.fields.clientEmail) throw new TRPCError({ code: "BAD_REQUEST", message: "Add the client's email before sending by email." });
+      if (input.channel === "whatsapp" && !bundle.fields.clientPhone) throw new TRPCError({ code: "BAD_REQUEST", message: "Add the client's phone number before sending by WhatsApp." });
+      const viewUrl = quoteDocs.quoteViewUrl(bundle.document);
+      const drafts = quoteDocs.buildQuoteDrafts(bundle.view, bundle.fields.clientEmail, bundle.fields.clientPhone, viewUrl);
+      await quoteDocs.markQuoteSent(ctx.user.workspaceId, input.quoteId, input.channel);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.quoteId, tableName: "quotes", action: "Sent", detail: `Quotation ${bundle.quote.number} prepared for ${bundle.fields.clientName} by ${input.channel === "email" ? "email" : "WhatsApp"}.`, actorUserId: ctx.user.id }]);
+      return { channel: input.channel, viewUrl, waLink: drafts.waLink, emailDraftUrl: drafts.emailDraftUrl };
+    }),
+    downloadPdf: protectedProcedure.input(z.object({ quoteId: z.string().uuid() })).query(async ({ ctx, input }) => {
+      const bundle = await quoteDocs.loadQuoteBundle(ctx.user.workspaceId, input.quoteId);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "Quote not found." });
+      return { filename: invoiceDocs.invoicePdfFilename(bundle.view), content: Buffer.from(await renderInvoicePdf(bundle.view)).toString("base64") };
+    }),
+    getByToken: publicProcedure.input(z.object({ token: z.string().min(20).max(200) })).query(async ({ input }) => {
+      const bundle = await quoteDocs.loadQuoteBundleByToken(input.token);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This quotation link is invalid or has been replaced. Ask the sender for a new one." });
+      return { view: bundle.view };
+    }),
+    downloadPdfByToken: publicProcedure.input(z.object({ token: z.string().min(20).max(200) })).query(async ({ input }) => {
+      const bundle = await quoteDocs.loadQuoteBundleByToken(input.token);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This quotation link is invalid." });
+      return { filename: invoiceDocs.invoicePdfFilename(bundle.view), content: Buffer.from(await renderInvoicePdf(bundle.view)).toString("base64") };
+    }),
+    decide: publicProcedure.input(z.object({ token: z.string().min(20).max(200), decision: z.enum(["accepted", "declined"]), name: z.string().trim().min(2, "Enter your full name.").max(160), note: z.string().trim().max(1000).optional() })).mutation(async ({ input }) => {
+      assertPublicRate(`quote:${input.token}`, 10);
+      const bundle = await quoteDocs.loadQuoteBundleByToken(input.token);
+      if (!bundle) throw new TRPCError({ code: "NOT_FOUND", message: "This quotation link is invalid." });
+      const error = await quoteDocs.decideQuote(bundle, input.decision, input.name, input.note || null);
+      if (error) fail(error, { NOT_SENT: "This quotation hasn't been sent yet.", ALREADY_DECIDED: "A decision has already been recorded for this quotation.", EXPIRED: "This quotation has expired. Ask the sender for an updated one." });
+      await db.appendDashboardActivity(bundle.quote.workspaceId, [{ recordId: bundle.quote.id, tableName: "quotes", action: input.decision === "accepted" ? "Accepted" : "Declined", detail: `${input.name} ${input.decision} quotation ${bundle.quote.number}${input.note ? `: "${input.note.slice(0, 200)}"` : "."}`, actorUserId: null }]);
+      if (isEmailDeliveryConfigured() && bundle.workspace.businessEmail) sendEmail({ to: bundle.workspace.businessEmail, subject: `Quotation ${bundle.quote.number} ${input.decision}`, html: `<p>${input.name.replace(/</g, "&lt;")} ${input.decision} quotation ${bundle.quote.number}.</p>${input.note ? `<p>Note: ${input.note.replace(/</g, "&lt;")}</p>` : ""}` }).catch(() => undefined);
+      return { success: true as const };
+    }),
+  }),
+  work: router({
+    get: protectedProcedure.input(z.object({ projectId: z.string().uuid() })).query(async ({ ctx, input }) => {
+      const view = await work.projectWorkspace(ctx.user.workspaceId, input.projectId);
+      if (!view) throw new TRPCError({ code: "NOT_FOUND", message: "This project hasn't saved to the workspace yet. Give it a moment and try again." });
+      return view;
+    }),
+    saveMilestone: protectedProcedure.input(z.object({ id: z.string().uuid().optional(), projectId: z.string().uuid(), title: z.string().trim().min(1, "Name the milestone.").max(200), description: z.string().trim().max(2000).nullable().optional(), dueDate: optionalDay, amount: z.number().int().nonnegative().max(100_000_000).default(0), status: z.enum(work.MILESTONE_STATUSES) })).mutation(async ({ ctx, input }) => {
+      if (!(await work.getProject(ctx.user.workspaceId, input.projectId))) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found." });
+      const saved = await work.upsertMilestone(ctx.user.workspaceId, input);
+      if (!saved) throw new TRPCError({ code: "NOT_FOUND", message: "Milestone not found." });
+      if (input.status === "awaiting-approval") await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.projectId, tableName: "projects", action: "Approval requested", detail: `"${saved.title}" sent to the client for approval in their portal.`, actorUserId: ctx.user.id }]);
+      return saved;
+    }),
+    deleteMilestone: protectedProcedure.input(uuidInput).mutation(async ({ ctx, input }) => { await work.deleteMilestone(ctx.user.workspaceId, input.id); return { success: true as const }; }),
+    invoiceMilestone: protectedProcedure.input(uuidInput).mutation(async ({ ctx, input }) => {
+      const result = await work.invoiceMilestone(ctx.user.workspaceId, ctx.user.id, input.id);
+      if (result.error) fail(result.error, { NOT_FOUND: "Milestone not found.", ALREADY_INVOICED: "This milestone has already been invoiced.", NO_AMOUNT: "Set the milestone's amount before invoicing it.", NO_CLIENT: "Link the project to a client first (Projects -> Edit -> Client)." });
+      await invoiceCreatedActivity(ctx.user.workspaceId, ctx.user.id, result.invoice, "for a project milestone");
+      return { invoiceId: result.invoice.id, number: result.invoice.number };
+    }),
+    saveTask: protectedProcedure.input(z.object({ id: z.string().uuid().optional(), projectId: z.string().uuid(), milestoneId: z.string().uuid().nullable().optional(), title: z.string().trim().min(1, "Describe the task.").max(220), assigneeUserId: z.string().uuid().nullable().optional(), dueDate: optionalDay, done: z.boolean().default(false), priority: z.enum(["low", "normal", "high"]).default("normal") })).mutation(async ({ ctx, input }) => {
+      if (!(await work.getProject(ctx.user.workspaceId, input.projectId))) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found." });
+      const saved = await work.upsertTask(ctx.user.workspaceId, input);
+      if (!saved) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found." });
+      return saved;
+    }),
+    deleteTask: protectedProcedure.input(uuidInput).mutation(async ({ ctx, input }) => { await work.deleteTask(ctx.user.workspaceId, input.id); return { success: true as const }; }),
+    saveChange: protectedProcedure.input(z.object({ id: z.string().uuid().optional(), projectId: z.string().uuid(), title: z.string().trim().min(1, "Describe the change.").max(200), description: z.string().trim().max(4000).nullable().optional(), kind: z.enum(["revision", "change"]), status: z.enum(work.CHANGE_STATUSES), estimateHours: z.number().int().nonnegative().max(10_000).default(0), amount: z.number().int().nonnegative().max(100_000_000).default(0) })).mutation(async ({ ctx, input }) => {
+      if (!(await work.getProject(ctx.user.workspaceId, input.projectId))) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found." });
+      return work.upsertChangeRequest(ctx.user.workspaceId, input);
+    }),
+    deleteChange: protectedProcedure.input(uuidInput).mutation(async ({ ctx, input }) => { await work.deleteChangeRequest(ctx.user.workspaceId, input.id); return { success: true as const }; }),
+    invoiceChanges: protectedProcedure.input(z.object({ projectId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const result = await work.invoiceChangeRequests(ctx.user.workspaceId, ctx.user.id, input.projectId);
+      if (result.error) fail(result.error, { NOT_FOUND: "Project not found.", NOTHING_TO_BILL: "There are no approved or done change requests with a price to invoice.", NO_CLIENT: "Link the project to a client first (Projects -> Edit -> Client)." });
+      await invoiceCreatedActivity(ctx.user.workspaceId, ctx.user.id, result.invoice, `for ${result.count} change request${result.count === 1 ? "" : "s"}`);
+      return { invoiceId: result.invoice.id, number: result.invoice.number, count: result.count };
+    }),
+    logTime: protectedProcedure.input(z.object({ projectId: z.string().uuid(), changeRequestId: z.string().uuid().nullable().optional(), description: z.string().trim().min(1, "Say what the time was spent on.").max(300), minutes: z.number().int().min(1, "Log at least one minute.").max(24 * 60), workDate: z.coerce.date(), billable: z.boolean().default(true), hourlyRate: z.number().int().nonnegative().max(10_000_000) })).mutation(async ({ ctx, input }) => {
+      if (!(await work.getProject(ctx.user.workspaceId, input.projectId))) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found." });
+      return work.addTimeEntry(ctx.user.workspaceId, ctx.user.id, input);
+    }),
+    deleteTime: protectedProcedure.input(uuidInput).mutation(async ({ ctx, input }) => {
+      const error = await work.deleteTimeEntry(ctx.user.workspaceId, input.id);
+      if (error) fail(error, { NOT_FOUND: "Time entry not found.", INVOICED: "This time has already been invoiced, so it can't be deleted." });
+      return { success: true as const };
+    }),
+    invoiceTime: protectedProcedure.input(z.object({ projectId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const result = await work.invoiceTime(ctx.user.workspaceId, ctx.user.id, input.projectId);
+      if (result.error) fail(result.error, { NOTHING_TO_BILL: "There's no unbilled billable time with an hourly rate on this project.", NO_CLIENT: "Link the project to a client first (Projects -> Edit -> Client)." });
+      await invoiceCreatedActivity(ctx.user.workspaceId, ctx.user.id, result.invoice, `for ${result.count} time entr${result.count === 1 ? "y" : "ies"}`);
+      return { invoiceId: result.invoice.id, number: result.invoice.number, count: result.count };
+    }),
+  }),
+  vault: router({
+    list: protectedProcedure.input(z.object({ clientId: z.string().uuid() })).query(({ ctx, input }) => vault.listAssets(ctx.user.workspaceId, input.clientId)),
+    add: protectedProcedure.input(z.object({ clientId: z.string().uuid(), kind: z.enum(["link", "credential"]), name: z.string().trim().min(1, "Name it, e.g. WordPress admin.").max(200), url: z.string().trim().max(2000).nullable().optional(), username: z.string().trim().max(200).nullable().optional(), secret: z.string().max(2000).nullable().optional(), notes: z.string().trim().max(2000).nullable().optional(), visibility: z.enum(["internal", "client"]).default("internal") })).mutation(async ({ ctx, input }) => {
+      const client = await vault.clientInWorkspace(ctx.user.workspaceId, input.clientId);
+      if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "Client not found." });
+      if (input.url && !/^https?:\/\//i.test(input.url)) throw new TRPCError({ code: "BAD_REQUEST", message: "Links must start with http:// or https://." });
+      const saved = await vault.addLinkOrCredential(ctx.user.workspaceId, ctx.user.id, input);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.clientId, tableName: "clients", action: input.kind === "credential" ? "Login stored" : "Link added", detail: `${input.name} added to ${client.name}'s vault.`, actorUserId: ctx.user.id }]);
+      return saved;
+    }),
+    update: protectedProcedure.input(z.object({ id: z.string().uuid(), name: z.string().trim().min(1).max(200).optional(), url: z.string().trim().max(2000).nullable().optional(), username: z.string().trim().max(200).nullable().optional(), secret: z.string().max(2000).nullable().optional(), notes: z.string().trim().max(2000).nullable().optional(), visibility: z.enum(["internal", "client"]).optional() })).mutation(async ({ ctx, input }) => {
+      if (input.url && !/^https?:\/\//i.test(input.url)) throw new TRPCError({ code: "BAD_REQUEST", message: "Links must start with http:// or https://." });
+      const saved = await vault.updateAsset(ctx.user.workspaceId, input.id, input);
+      if (!saved) throw new TRPCError({ code: "NOT_FOUND", message: "Vault item not found." });
+      return { success: true as const };
+    }),
+    delete: protectedProcedure.input(uuidInput).mutation(async ({ ctx, input }) => {
+      const asset = await vault.getAsset(ctx.user.workspaceId, input.id);
+      if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "Vault item not found." });
+      await vault.deleteAsset(ctx.user.workspaceId, input.id);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: asset.clientId, tableName: "clients", action: "Vault item deleted", detail: `${asset.name} removed from the vault.`, actorUserId: ctx.user.id }]);
+      return { success: true as const };
+    }),
+    // Every reveal is written to the activity log.
+    reveal: protectedProcedure.input(uuidInput).mutation(async ({ ctx, input }) => {
+      const result = await vault.revealSecret(ctx.user.workspaceId, input.id).catch(() => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This password can't be decrypted (the server's SESSION_SECRET changed). Re-enter it." }); });
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "No stored password for this item." });
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: result.asset.clientId, tableName: "clients", action: "Password viewed", detail: `${ctx.user.name} viewed the password for ${result.asset.name}.`, actorUserId: ctx.user.id }]);
+      return { secret: result.secret };
+    }),
+  }),
+  portal: router({
+    status: protectedProcedure.input(z.object({ clientId: z.string().uuid() })).query(async ({ ctx, input }) => {
+      const client = await vault.clientInWorkspace(ctx.user.workspaceId, input.clientId);
+      if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "This client hasn't saved to the workspace yet." });
+      return { enabled: client.portalEnabled, url: client.portalEnabled ? portal.portalUrl(client) : null };
+    }),
+    set: protectedProcedure.input(z.object({ clientId: z.string().uuid(), action: z.enum(["enable", "disable", "reset"]) })).mutation(async ({ ctx, input }) => {
+      const result = await portal.setPortal(ctx.user.workspaceId, input.clientId, input.action);
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "Client not found." });
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: input.clientId, tableName: "clients", action: input.action === "enable" ? "Portal enabled" : input.action === "disable" ? "Portal disabled" : "Portal link reset", detail: input.action === "reset" ? "A new client portal link was issued; the old one no longer works." : `Client portal ${input.action}d.`, actorUserId: ctx.user.id }]);
+      return result;
+    }),
+    get: publicProcedure.input(z.object({ token: z.string().min(20).max(200) })).query(async ({ input }) => {
+      const client = await portal.clientForPortalToken(input.token);
+      if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "This portal link is no longer valid. Ask your project contact for a new one." });
+      return portal.loadPortal(client);
+    }),
+    decideMilestone: publicProcedure.input(z.object({ token: z.string().min(20).max(200), milestoneId: z.string().uuid(), decision: z.enum(["approved", "changes-requested"]), name: z.string().trim().min(2, "Enter your name.").max(160), note: z.string().trim().max(2000).optional() })).mutation(async ({ input }) => {
+      assertPublicRate(`portal:${input.token}`);
+      const client = await portal.clientForPortalToken(input.token);
+      if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "This portal link is no longer valid." });
+      const milestone = await work.getMilestone(client.workspaceId, input.milestoneId);
+      if (!milestone || !(await portal.portalProject(client, milestone.projectId))) throw new TRPCError({ code: "NOT_FOUND", message: "Milestone not found." });
+      if (input.decision === "changes-requested" && !input.note) throw new TRPCError({ code: "BAD_REQUEST", message: "Describe the changes you'd like." });
+      const error = await work.decideMilestone(client.workspaceId, input.milestoneId, input.decision, input.name, input.note || null);
+      if (error) fail(error, { NOT_AWAITING: "This milestone isn't waiting for your approval any more." });
+      await db.appendDashboardActivity(client.workspaceId, [{ recordId: milestone.projectId, tableName: "projects", action: input.decision === "approved" ? "Milestone approved" : "Changes requested", detail: `${input.name} (${client.name}) ${input.decision === "approved" ? "approved" : "requested changes to"} "${milestone.title}"${input.note ? `: "${input.note.slice(0, 200)}"` : "."}`, actorUserId: null }]);
+      return { success: true as const };
+    }),
+    requestChange: publicProcedure.input(z.object({ token: z.string().min(20).max(200), projectId: z.string().uuid(), title: z.string().trim().min(3, "Give the request a short title.").max(200), description: z.string().trim().max(4000).optional(), name: z.string().trim().min(2, "Enter your name.").max(160) })).mutation(async ({ input }) => {
+      assertPublicRate(`portal:${input.token}`);
+      const client = await portal.clientForPortalToken(input.token);
+      if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "This portal link is no longer valid." });
+      if (!(await portal.portalProject(client, input.projectId))) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found." });
+      await work.upsertChangeRequest(client.workspaceId, { projectId: input.projectId, title: input.title, description: input.description || null, kind: "change", status: "requested", estimateHours: 0, amount: 0, source: "client", requestedByName: input.name });
+      await db.appendDashboardActivity(client.workspaceId, [{ recordId: input.projectId, tableName: "projects", action: "Change requested", detail: `${input.name} (${client.name}) requested: "${input.title}".`, actorUserId: null }]);
+      return { success: true as const };
+    }),
+    contractPdf: publicProcedure.input(z.object({ token: z.string().min(20).max(200), contractId: z.string().uuid() })).query(async ({ input }) => {
+      const client = await portal.clientForPortalToken(input.token);
+      const contract = client ? await portal.portalContract(client, input.contractId) : undefined;
+      if (!contract) throw new TRPCError({ code: "NOT_FOUND", message: "Agreement not found." });
+      return buildContractPdfAttachment(contract);
     }),
   }),
   renewals: router({
