@@ -35,7 +35,7 @@ export default function InvoiceDetailsDialog({ open, number, initial, saving, on
           <label>Due date<input type="date" value={meta.dueDate} onChange={(e) => setMeta({ ...meta, dueDate: e.target.value })} /></label>
         </div></fieldset> : null}
         <fieldset><legend>Bill to</legend><div className="record-fields">
-          {clients.length ? <label className="wide">Select client<select value="" onChange={(e) => { const c = clients.find((x) => x.name === e.target.value); if (c) setForm((f) => ({ ...f, clientName: c.name, clientEmail: c.email, clientPhone: c.phone })); }}><option value="">Enter manually</option>{clients.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label> : null}
+          {clients.length ? <label className="wide">Select client<select value="" onChange={(e) => { const c = clients.find((x) => x.name === e.target.value); if (c) setForm((f) => ({ ...f, clientName: c.name, clientEmail: c.email, clientPhone: c.phone })); }}><option value="">Enter manually</option>{clients.filter((c, i) => c.name && clients.findIndex((x) => x.name === c.name) === i).map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label> : null}
           {text("Client / Company", "clientName")}{text("Contact person", "contactPerson")}{text("Email", "clientEmail", { type: "email" })}{text("Phone (WhatsApp)", "clientPhone", { placeholder: "+254 7XX XXX XXX" })}{text("Billing address", "billingAddress", { wide: true, placeholder: "Address / Town / County" })}
         </div></fieldset>
         <fieldset><legend>Project details</legend><div className="record-fields">

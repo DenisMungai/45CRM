@@ -79,6 +79,8 @@ export const clients = pgTable("clients", {
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 180 }).notNull(),
   company: varchar("company", { length: 180 }),
+  // The person you deal with at the client ("Primary contact" in the Clients table).
+  contactName: varchar("contact_name", { length: 160 }),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 40 }),
   status: varchar("status", { length: 32 }).default("active").notNull(),

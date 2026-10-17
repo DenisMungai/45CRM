@@ -22,6 +22,7 @@ import * as invoiceDocs from "./invoiceDocs.js";
 import { renderInvoicePdf } from "./invoicePdf.js";
 import { defaultInvoiceFields, type InvoiceFields } from "../shared/invoice.js";
 import { ENV } from "./_core/env.js";
+import { hashPassword, issueSession, verifyPassword } from "./auth.js";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "owner" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Administrator access is required." });
@@ -126,6 +127,25 @@ function requireOpenContract(contract: { status: string } | undefined): asserts 
 const rate = new Map<string, { count: number; resetAt: number }>();
 function assertRate(key: string) { const now = Date.now(); const current = rate.get(key); if (!current || current.resetAt < now) return rate.set(key, { count: 1, resetAt: now + 600_000 }); if (current.count >= 12) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "4S Insight is temporarily rate limited." }); current.count++; }
 function eventId() { return randomUUID(); }
+/** Refuses a role change that would leave the workspace without an administrator, and never touches the owner. */
+async function assertRoleChangeAllowed(workspaceId: string, userIds: string[], role: "admin" | "member") {
+  const members = await db.getWorkspaceMemberRoles(workspaceId);
+  if (members.some((m) => userIds.includes(m.userId) && m.role === "owner")) throw new TRPCError({ code: "FORBIDDEN", message: "The workspace owner's role cannot be changed." });
+  if (role === "member") {
+    const remainingAdmins = members.filter((m) => m.status === "active" && (m.role === "owner" || m.role === "admin") && !userIds.includes(m.userId));
+    if (!remainingAdmins.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Keep at least one administrator in the workspace." });
+  }
+}
+/** A pending invitation for this raw token, or a clear error explaining why it can't be used. */
+async function openInvitation(token: string) {
+  const found = await db.findInvitationByTokenHash(hashToken(token));
+  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "This invitation link is invalid. Ask the workspace admin to send a new one." });
+  const { invitation } = found;
+  if (invitation.status === "accepted") throw new TRPCError({ code: "CONFLICT", message: "This invitation has already been accepted. Sign in to continue." });
+  if (invitation.status === "revoked") throw new TRPCError({ code: "FORBIDDEN", message: "This invitation was withdrawn by the workspace admin." });
+  if (invitation.status === "expired" || invitation.expiresAt < new Date()) throw new TRPCError({ code: "FORBIDDEN", message: "This invitation has expired. Ask the workspace admin to send a new one." });
+  return found;
+}
 function text(value: unknown): string { if (typeof value === "string") return value.trim(); if (Array.isArray(value)) return value.map(text).filter(Boolean).join("\n").trim(); if (!value || typeof value !== "object") return ""; const r = value as Record<string, unknown>; return text(r.text) || text(r.output_text) || text(r.content); }
 
 export const appRouter = router({
@@ -147,7 +167,9 @@ export const appRouter = router({
       const workspace = await db.updateWorkspaceProfile(ctx.user.workspaceId, input);
       return { name: workspace.name, currency: workspace.currency, businessEmail: workspace.businessEmail, businessPhone: workspace.businessPhone, businessAddress: workspace.businessAddress };
     }),
-    leadWebhook: protectedProcedure.query(async ({ ctx }) => {
+    // Names only, for pickers such as a lead's "Assigned to"; any member may read them.
+    members: protectedProcedure.query(async ({ ctx }) => (await db.listWorkspaceUsers(ctx.user.workspaceId)).filter((m) => m.status === "active").map((m) => ({ id: m.id, name: m.name }))),
+    leadWebhook: adminProcedure.query(async ({ ctx }) => {
       const secret = await db.ensureLeadWebhookSecret(ctx.user.workspaceId);
       return { url: `${ENV.appUrl}/api/leads/capture/${ctx.user.workspaceId}`, secret };
     }),
@@ -170,6 +192,27 @@ export const appRouter = router({
     updateProfile: protectedProcedure.input(profileInput).mutation(async ({ ctx, input }) => { await db.updateUser(ctx.user.id, { name: input.name }); return { success: true, name: input.name, bio: input.bio ?? null }; }),
     removeAvatar: protectedProcedure.mutation(async ({ ctx }) => { await db.updateUser(ctx.user.id, { avatarUrl: null }); return { success: true as const }; }),
     uploadAvatar: protectedProcedure.input(avatarDataUrlInput).mutation(async ({ ctx, input }) => { const match = /^data:(image\/(png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(input.dataUrl); if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "Upload a PNG, JPEG, or WebP image." }); const bytes = Buffer.from(match[3], "base64"); if (!bytes.length || bytes.length > 2 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Avatar images must be smaller than 2 MB." }); const stored = await storagePut(`profiles/${ctx.user.id}/avatar.${match[2] === "jpeg" ? "jpg" : match[2]}`, bytes, match[1]); await db.updateUser(ctx.user.id, { avatarUrl: stored.url }); return { avatarUrl: stored.url }; }),
+    invitation: publicProcedure.input(z.object({ token: z.string().min(20).max(200) })).query(async ({ input }) => {
+      const { invitation, workspaceName } = await openInvitation(input.token);
+      return { email: invitation.email, role: invitation.role, workspaceName, hasAccount: Boolean(await db.findUserByEmail(invitation.email)) };
+    }),
+    acceptInvitation: publicProcedure.input(z.object({ token: z.string().min(20).max(200), name: z.string().trim().max(120).optional(), password: z.string().min(8, "Use at least 8 characters.").max(200) })).mutation(async ({ ctx, input }) => {
+      const { invitation } = await openInvitation(input.token);
+      let user = await db.findUserByEmail(invitation.email);
+      if (user) {
+        if (!(await verifyPassword(input.password, user.passwordHash))) throw new TRPCError({ code: "UNAUTHORIZED", message: "That password doesn't match the existing account for this email." });
+      } else {
+        if (!input.name) throw new TRPCError({ code: "BAD_REQUEST", message: "Add your name to create the account." });
+        user = await db.createUser({ email: invitation.email, name: input.name, passwordHash: await hashPassword(input.password) });
+      }
+      await db.addWorkspaceMember(invitation.workspaceId, user.id, invitation.role === "admin" ? "admin" : "member");
+      await db.updateWorkspaceInvitationDelivery(invitation.id, "accepted");
+      await db.updateUser(user.id, { lastSignedIn: new Date() });
+      await db.appendDashboardActivity(invitation.workspaceId, [{ recordId: `user-${user.id}`, tableName: "workspace", action: "Invitation accepted", detail: `${user.name} joined the workspace as ${invitation.role === "admin" ? "an administrator" : "a member"}.`, actorUserId: user.id }]);
+      const token = await issueSession(user.id, invitation.workspaceId);
+      ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(), maxAge: 30 * 86400000 });
+      return { success: true as const };
+    }),
     deleteAccount: protectedProcedure.input(z.object({ confirmation: z.literal("DELETE MY ACCOUNT") })).mutation(async ({ ctx }) => { if ((ctx.user.role === "owner" || ctx.user.role === "admin") && await db.countWorkspaceAdmins(ctx.user.workspaceId) <= 1) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Create another administrator before deleting the last administrator account." }); await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: `user-${ctx.user.id}`, tableName: "workspace", action: "Account deleted", detail: "A workspace account was deleted.", actorUserId: ctx.user.id }]); await db.deleteWorkspaceUser(ctx.user.workspaceId, ctx.user.id); const token = ctx.req.cookies?.[COOKIE_NAME]; if (token) await db.deleteSession(createHash("sha256").update(token).digest("hex")); ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions()); return { success: true as const }; }),
   }),
   crm: router({
@@ -226,10 +269,26 @@ export const appRouter = router({
   }),
   admin: router({
     users: adminProcedure.query(({ ctx }) => db.listWorkspaceUsers(ctx.user.workspaceId)),
-    setRole: adminProcedure.input(z.object({ userId: z.string().uuid(), role: z.enum(["admin", "member"]) })).mutation(async ({ ctx, input }) => { await db.setWorkspaceUserRole(ctx.user.workspaceId, input.userId, input.role); return { success: true as const }; }),
-    setRoles: adminProcedure.input(z.object({ userIds: z.array(z.string().uuid()).min(1).max(100), role: z.enum(["admin", "member"]) })).mutation(async ({ ctx, input }) => { await Promise.all(input.userIds.map(id => db.setWorkspaceUserRole(ctx.user.workspaceId, id, input.role))); return { success: true as const, updated: input.userIds.length }; }),
-    invitations: adminProcedure.query(({ ctx }) => db.listWorkspaceInvitations(ctx.user.workspaceId)),
-    invite: adminProcedure.input(z.object({ email: z.string().email(), role: z.enum(["admin", "member"]).default("member") })).mutation(async ({ ctx, input }) => { const raw = randomUUID() + randomUUID(); const tokenHash = createHash("sha256").update(raw).digest("hex"); const invitation = await db.createWorkspaceInvitation({ workspaceId: ctx.user.workspaceId, email: input.email.toLowerCase(), role: input.role, tokenHash, invitedByUserId: ctx.user.id, expiresAt: new Date(Date.now() + 7 * 86400000) }); const inviteUrl = `${ENV.appUrl}/invite/${raw}`; try { const delivery = await sendTeamInvitation({ email: input.email, role: input.role, inviteUrl }); return { success: true as const, invitation: { id: invitation.id, email: input.email, role: input.role, status: "sent" as const, providerId: delivery.providerId } }; } catch (error) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Invitation delivery failed." }); } }),
+    setRole: adminProcedure.input(z.object({ userId: z.string().uuid(), role: z.enum(["admin", "member"]) })).mutation(async ({ ctx, input }) => { await assertRoleChangeAllowed(ctx.user.workspaceId, [input.userId], input.role); await db.setWorkspaceUserRole(ctx.user.workspaceId, input.userId, input.role); return { success: true as const }; }),
+    setRoles: adminProcedure.input(z.object({ userIds: z.array(z.string().uuid()).min(1).max(100), role: z.enum(["admin", "member"]) })).mutation(async ({ ctx, input }) => { await assertRoleChangeAllowed(ctx.user.workspaceId, input.userIds, input.role); await Promise.all(input.userIds.map(id => db.setWorkspaceUserRole(ctx.user.workspaceId, id, input.role))); return { success: true as const, updated: input.userIds.length }; }),
+    // Pending invitations past their expiry are reported as expired.
+    invitations: adminProcedure.query(async ({ ctx }) => (await db.listWorkspaceInvitations(ctx.user.workspaceId)).map((i) => ({ id: i.id, email: i.email, role: i.role, createdAt: i.createdAt, expiresAt: i.expiresAt, status: i.status === "pending" && i.expiresAt < new Date() ? "expired" as const : i.status }))),
+    invite: adminProcedure.input(z.object({ email: z.string().email(), role: z.enum(["admin", "member"]).default("member") })).mutation(async ({ ctx, input }) => {
+      const email = input.email.toLowerCase();
+      const existing = await db.findUserByEmail(email);
+      if (existing && (await db.getMembership(existing.id, ctx.user.workspaceId))) throw new TRPCError({ code: "CONFLICT", message: `${email} is already a member of this workspace.` });
+      const raw = randomUUID() + randomUUID();
+      const invitation = await db.createWorkspaceInvitation({ workspaceId: ctx.user.workspaceId, email, role: input.role, tokenHash: hashToken(raw), invitedByUserId: ctx.user.id, expiresAt: new Date(Date.now() + 7 * 86400000) });
+      const inviteUrl = `${ENV.appUrl.replace(/\/$/, "")}/invite/${raw}`;
+      // Without email delivery (or if it fails) the admin still gets the link to share themselves.
+      if (!isEmailDeliveryConfigured()) return { success: true as const, delivered: false as const, inviteUrl, deliveryError: "Email delivery isn't configured (RESEND_API_KEY / RESEND_FROM_EMAIL), so share this link yourself.", invitation: { id: invitation.id, email, role: input.role } };
+      try {
+        await sendTeamInvitation({ email, role: input.role, inviteUrl });
+        return { success: true as const, delivered: true as const, inviteUrl, deliveryError: null, invitation: { id: invitation.id, email, role: input.role } };
+      } catch (error) {
+        return { success: true as const, delivered: false as const, inviteUrl, deliveryError: `The invitation email could not be sent (${error instanceof Error ? error.message : "delivery failed"}), so share this link yourself.`, invitation: { id: invitation.id, email, role: input.role } };
+      }
+    }),
   }),
   insight: router({
     chat: protectedProcedure.input(insightInput).mutation(async ({ input, ctx }) => {

@@ -85,6 +85,16 @@ export async function updateWorkspaceUserProfile(userId: string, name: string) {
 export async function createWorkspaceInvitation(invitation: typeof workspaceInvitations.$inferInsert) { return getDb().insert(workspaceInvitations).values(invitation).returning().then(r => r[0]); }
 export async function updateWorkspaceInvitationDelivery(id: string, status: "accepted" | "expired" | "revoked" | "pending", detail?: string) { await getDb().update(workspaceInvitations).set({ status }).where(eq(workspaceInvitations.id, id)); return detail; }
 export async function listWorkspaceInvitations(workspaceId: string) { return getDb().select().from(workspaceInvitations).where(eq(workspaceInvitations.workspaceId, workspaceId)).orderBy(desc(workspaceInvitations.createdAt)); }
+export async function findInvitationByTokenHash(tokenHash: string) {
+  return getDb().select({ invitation: workspaceInvitations, workspaceName: workspaces.name }).from(workspaceInvitations).innerJoin(workspaces, eq(workspaces.id, workspaceInvitations.workspaceId)).where(eq(workspaceInvitations.tokenHash, tokenHash)).limit(1).then(r => r[0]);
+}
+/** Adds (or re-activates) a workspace membership. An existing member keeps their current role. */
+export async function addWorkspaceMember(workspaceId: string, userId: string, role: "admin" | "member") {
+  await getDb().insert(workspaceMembers).values({ workspaceId, userId, role, status: "active" }).onConflictDoUpdate({ target: [workspaceMembers.workspaceId, workspaceMembers.userId], set: { status: "active", updatedAt: new Date() } });
+}
+export async function getWorkspaceMemberRoles(workspaceId: string) {
+  return getDb().select({ userId: workspaceMembers.userId, role: workspaceMembers.role, status: workspaceMembers.status }).from(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspaceId));
+}
 
 export async function getWorkspaceDashboardData(workspaceId: string) {
   const [clientRows, leadRows, projectRows, invoiceRows, paymentRows, transactionRows] = await Promise.all([
