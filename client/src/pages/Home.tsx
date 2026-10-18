@@ -2,7 +2,7 @@
  * Midnight Ledger design reminder: this reference-led operations console uses a fixed
  * graphite rail, dense business information, quiet depth, and oxide-red only as a signal.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { trpc } from "@/lib/trpc";
 import { downloadBase64Pdf } from "@/lib/utils";
@@ -637,16 +637,25 @@ function contractFormToInput(form: ContractFormState) {
   };
 }
 
-function ContractFormDialog({ open, initial, onClose, onSubmit, submitting }: { open: boolean; initial: ContractFormState; onClose: () => void; onSubmit: (form: ContractFormState) => void; submitting: boolean }) {
+// Unsaved agreement forms, keyed by contract id ("new" for a new agreement). Kept until a save
+// succeeds so a failed save, an accidental close or a page reload never loses what was typed.
+type ContractDrafts = Record<string, ContractFormState>;
+const contractDraftsKey = "45crm.contractDrafts";
+function loadContractDrafts(): ContractDrafts {
+  try { return JSON.parse(localStorage.getItem(contractDraftsKey) || "{}") as ContractDrafts; } catch { return {}; }
+}
+function storeContractDrafts(drafts: ContractDrafts) {
+  try { localStorage.setItem(contractDraftsKey, JSON.stringify(drafts)); } catch { /* storage unavailable; drafts stay in memory */ }
+}
+
+// Mounted only while open (keyed by draft), so `initial` seeds the form exactly once per opening.
+function ContractFormDialog({ initial, base, signed, onDraftChange, onClose, onSubmit, submitting }: { initial: ContractFormState; base: ContractFormState; signed: boolean; onDraftChange: (form: ContractFormState | null) => void; onClose: () => void; onSubmit: (form: ContractFormState) => void; submitting: boolean }) {
   const [form, setForm] = useState<ContractFormState>(initial);
-  // Reset only when the dialog opens. The parent builds `initial` fresh on every render, so
-  // depending on it wiped everything typed whenever the agreements list refetched (e.g. on
-  // returning to the tab) or a save failed.
+  const dirty = JSON.stringify(form) !== JSON.stringify(base);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (open) setForm(initial); }, [open]);
-  const clients = trpc.crm.clients.list.useQuery(undefined, { enabled: open });
-  const projects = trpc.crm.projects.list.useQuery(undefined, { enabled: open });
-  if (!open) return null;
+  useEffect(() => { onDraftChange(dirty ? form : null); }, [form]);
+  const clients = trpc.crm.clients.list.useQuery(undefined);
+  const projects = trpc.crm.projects.list.useQuery(undefined);
   const set = <K extends keyof ContractFormState>(key: K, value: ContractFormState[K]) => setForm((current) => ({ ...current, [key]: value }));
   const applyClient = (id: string) => {
     set("clientId", id);
@@ -666,9 +675,11 @@ function ContractFormDialog({ open, initial, onClose, onSubmit, submitting }: { 
     }
   };
   const canSubmit = form.providerName.trim() && form.clientName.trim() && form.projectName.trim();
-  return <div className="record-dialog-backdrop" role="presentation" onMouseDown={onClose}>
-    <section className="record-dialog panel contract-dialog" role="dialog" aria-modal="true" aria-labelledby="contract-form-title" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="record-dialog-head"><div><span className="eyebrow">Web design & development agreement</span><h2 id="contract-form-title">{initial.projectName ? "Edit service agreement" : "New service agreement"}</h2></div><button className="record-close" aria-label="Close" onClick={onClose}><X /></button></div>
+  // No close on backdrop click: a stray click (e.g. while dismissing an error) shouldn't hide a long form.
+  return <div className="record-dialog-backdrop" role="presentation">
+    <section className="record-dialog panel contract-dialog" role="dialog" aria-modal="true" aria-labelledby="contract-form-title">
+      <div className="record-dialog-head"><div><span className="eyebrow">Web design & development agreement</span><h2 id="contract-form-title">{base.projectName ? "Edit service agreement" : "New service agreement"}</h2></div><button className="record-close" aria-label="Close" onClick={onClose}><X /></button></div>
+      {signed && <div className="contract-link-box"><ShieldCheck size={12} /><span>You have already signed this agreement. Saving changes removes your signature, so you will need to sign it again before sending.</span></div>}
       <div className="contract-form-sections">
         <fieldset><legend>Parties & Project</legend><div className="record-fields">
           <label>Your business name<input value={form.providerName} onChange={(e) => set("providerName", e.target.value)} /></label>
@@ -709,7 +720,8 @@ function ContractFormDialog({ open, initial, onClose, onSubmit, submitting }: { 
         <fieldset><legend>Additional notes</legend><textarea rows={3} value={form.notes} maxLength={contractFieldLimits.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Anything else specific to this project" /></fieldset>
       </div>
       <div className="record-dialog-actions">
-        <button className="record-reset" onClick={onClose}>Cancel</button>
+        {dirty && <button className="record-reset" onClick={() => { if (window.confirm("Discard your unsaved changes to this agreement?")) setForm(base); }}>Discard changes</button>}
+        <button className="record-reset" onClick={onClose}>{dirty ? "Close (keep draft)" : "Cancel"}</button>
         <button className="record-save" disabled={submitting || !canSubmit} onClick={() => onSubmit(form)}><Check />{submitting ? "Saving…" : "Save agreement"}</button>
       </div>
     </section>
@@ -859,8 +871,17 @@ function ContractsPage({ query, onCreateInvoice }: { query: string; onCreateInvo
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewingId, setViewingId] = useState<string | null>(null);
-  const create = trpc.contracts.create.useMutation({ onSuccess: async (contract) => { toast.success("Agreement created"); setFormOpen(false); await utils.contracts.list.invalidate(); setViewingId(contract.id); }, onError: (error) => toast.error(error.message) });
-  const update = trpc.contracts.update.useMutation({ onSuccess: () => { toast.success("Agreement updated"); setFormOpen(false); setEditingId(null); utils.contracts.list.invalidate(); }, onError: (error) => toast.error(error.message) });
+  const [drafts, setDrafts] = useState<ContractDrafts>(loadContractDrafts);
+  const setDraft = useCallback((key: string, form: ContractFormState | null) => setDrafts((current) => {
+    if (!form && !(key in current)) return current;
+    const next = { ...current };
+    if (form) next[key] = form; else delete next[key];
+    storeContractDrafts(next);
+    return next;
+  }), []);
+  const create = trpc.contracts.create.useMutation({ onSuccess: async (contract) => { toast.success("Agreement created. Sign it to send it to the client."); setDraft("new", null); setFormOpen(false); await utils.contracts.list.invalidate(); setViewingId(contract.id); }, onError: (error) => toast.error(error.message) });
+  // Saving an edit clears the provider signature on the server, so open the agreement at the signing step.
+  const update = trpc.contracts.update.useMutation({ onSuccess: async (contract, variables) => { const wasSigned = Boolean(contracts.find((c) => c.id === variables.id)?.providerSignedAt); toast.success(wasSigned ? "Agreement updated. Your signature was removed, so sign it again before sending." : "Agreement updated"); setDraft(variables.id, null); setFormOpen(false); setEditingId(null); await utils.contracts.list.invalidate(); if (contract) setViewingId(contract.id); }, onError: (error) => toast.error(error.message) });
   const remove = trpc.contracts.delete.useMutation({ onSuccess: () => { toast.success("Agreement deleted"); setViewingId(null); utils.contracts.list.invalidate(); }, onError: (error) => toast.error(error.message) });
   const contracts = (list.data || []) as ContractRecord[];
   const needle = query.trim().toLowerCase();
@@ -868,6 +889,8 @@ function ContractsPage({ query, onCreateInvoice }: { query: string; onCreateInvo
   const counts = { total: contracts.length, draft: contracts.filter((c) => c.status === "draft").length, sent: contracts.filter((c) => c.status === "sent").length, signed: contracts.filter((c) => c.status === "signed").length };
   const editingContract = editingId ? contracts.find((c) => c.id === editingId) || null : null;
   const viewingContract = viewingId ? contracts.find((c) => c.id === viewingId) || null : null;
+  const draftKey = editingId || "new";
+  const formBase = editingContract ? contractToForm(editingContract) : emptyContractForm();
   const deleteAgreement = (contract: ContractRecord) => {
     if (window.confirm(`Permanently delete "${contract.title}"? This cannot be undone.`)) remove.mutate({ id: contract.id });
   };
@@ -908,7 +931,7 @@ function ContractsPage({ query, onCreateInvoice }: { query: string; onCreateInvo
         <td onClick={(event) => event.stopPropagation()}><div className="record-actions"><button className="record-edit" onClick={() => setViewingId(c.id)}><FileText />View</button>{c.status === "draft" && <button className="record-edit" onClick={() => { setEditingId(c.id); setFormOpen(true); }}><Pencil />Edit</button>}<button className="record-edit contract-delete-button" onClick={() => deleteAgreement(c)}><Trash2 />Delete</button></div></td>
       </tr>)}</tbody>
     </table></div></div>
-    <ContractFormDialog open={formOpen} initial={editingContract ? contractToForm(editingContract) : emptyContractForm()} submitting={create.isPending || update.isPending} onClose={() => { setFormOpen(false); setEditingId(null); }} onSubmit={(form) => { const payload = contractFormToInput(form); if (editingId) update.mutate({ id: editingId, ...payload }); else create.mutate(payload); }} />
+    {formOpen && <ContractFormDialog key={draftKey} base={formBase} initial={drafts[draftKey] || formBase} signed={Boolean(editingContract?.providerSignedAt)} onDraftChange={(form) => setDraft(draftKey, form)} submitting={create.isPending || update.isPending} onClose={() => { setFormOpen(false); setEditingId(null); }} onSubmit={(form) => { const payload = contractFormToInput(form); if (editingId) update.mutate({ id: editingId, ...payload }); else create.mutate(payload); }} />}
     <ContractViewDialog contract={viewingContract} onClose={() => setViewingId(null)} onDelete={deleteAgreement} deleting={remove.isPending} onCreateInvoice={(contract) => { setViewingId(null); onCreateInvoice(contract); }} />
   </div>;
 }
