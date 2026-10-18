@@ -16,7 +16,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { syncDomainRows, listDomainRows, deleteDomainRows } from "./domain.js";
 import * as crm from "./crm.js";
 import * as contractsDb from "./contracts.js";
-import { defaultContractFields, newSigningToken, type ContractFields } from "./contracts.js";
+import { contractFieldLimits as limits, defaultContractFields, newSigningToken, type ContractFields } from "./contracts.js";
 import { renderContractPdf } from "./contractPdf.js";
 import * as invoiceDocs from "./invoiceDocs.js";
 import { renderInvoicePdf } from "./invoicePdf.js";
@@ -47,25 +47,25 @@ const insightMessage = z.object({ role: z.enum(["user", "assistant"]), content: 
 const insightContext = z.object({ invoices: z.array(z.array(z.string().max(500)).max(12)).max(50), inventory: z.array(z.array(z.string().max(500)).max(12)).max(50), projects: z.array(z.array(z.string().max(500)).max(12)).max(50), transactions: z.array(z.array(z.string().max(500)).max(12)).max(50) });
 const insightInput = z.object({ messages: z.array(insightMessage).min(1).max(12), context: insightContext });
 const contractFieldsInput = z.object({
-  projectName: z.string().trim().min(1).max(180),
-  websiteType: z.string().trim().max(120).default(defaultContractFields.websiteType),
-  pages: z.string().trim().max(400).default(defaultContractFields.pages),
-  features: z.string().trim().max(400).default(defaultContractFields.features),
+  projectName: z.string().trim().min(1).max(limits.projectName),
+  websiteType: z.string().trim().max(limits.websiteType).default(defaultContractFields.websiteType),
+  pages: z.string().trim().max(limits.pages).default(defaultContractFields.pages),
+  features: z.string().trim().max(limits.features).default(defaultContractFields.features),
   totalCost: z.number().int().nonnegative().max(100_000_000).default(0),
   depositPercent: z.number().int().min(0).max(100).default(50),
-  paymentMethod: z.string().trim().max(120).default(defaultContractFields.paymentMethod),
-  startDate: z.string().trim().max(60).default(""),
-  deliveryWeeks: z.string().trim().max(20).default(""),
+  paymentMethod: z.string().trim().max(limits.paymentMethod).default(defaultContractFields.paymentMethod),
+  startDate: z.string().trim().max(limits.startDate).default(""),
+  deliveryWeeks: z.string().trim().max(limits.deliveryWeeks).default(""),
   revisionRounds: z.number().int().min(0).max(20).default(2),
   extraRevisionCost: z.number().int().nonnegative().max(10_000_000).default(0),
-  contentDueDate: z.string().trim().max(60).default(""),
+  contentDueDate: z.string().trim().max(limits.contentDueDate).default(""),
   domainIncluded: z.boolean().default(false),
-  domainName: z.string().trim().max(180).default(""),
+  domainName: z.string().trim().max(limits.domainName).default(""),
   hostingIncluded: z.boolean().default(false),
-  hostingPlatform: z.string().trim().max(120).default(""),
+  hostingPlatform: z.string().trim().max(limits.hostingPlatform).default(""),
   hostingCost: z.number().int().nonnegative().max(10_000_000).default(0),
   maintenanceFee: z.number().int().nonnegative().max(10_000_000).default(0),
-  notes: z.string().trim().max(2000).default(""),
+  notes: z.string().trim().max(limits.notes).default(""),
 }) satisfies z.ZodType<ContractFields>;
 const optionalEmail = z.union([z.literal(""), z.string().trim().email().max(320)]);
 const invoiceItemInput = z.object({

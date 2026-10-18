@@ -22,6 +22,22 @@ export type ContractFields = {
   notes: string;
 };
 
+// Max lengths for the free-text agreement fields. Shared so the form enforces the same limits
+// the server validates, instead of only failing on save.
+export const contractFieldLimits = {
+  projectName: 180,
+  websiteType: 120,
+  pages: 1000,
+  features: 3000,
+  paymentMethod: 120,
+  startDate: 120,
+  deliveryWeeks: 80,
+  contentDueDate: 120,
+  domainName: 180,
+  hostingPlatform: 120,
+  notes: 5000,
+} as const;
+
 export const defaultContractFields: ContractFields = {
   projectName: "",
   websiteType: "Business website",

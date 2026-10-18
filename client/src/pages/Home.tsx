@@ -33,7 +33,7 @@ import {
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import type { ContractFields } from "@shared/contract";
+import { contractFieldLimits, type ContractFields } from "@shared/contract";
 
 type PageKey = "Dashboard" | "Clients" | "Leads" | "Projects" | "Quotes" | "Invoices" | "Payments" | "Inventory" | "Accounting" | "Contracts" | "Renewals" | "Reports" | "AI Assistant" | "Settings" | "Client Details";
 type StatusTone = "active" | "paid" | "completed" | "accepted" | "overdue" | "expired" | "negative" | "pending" | "draft" | "new" | "sent" | "in-progress" | "proposal";
@@ -681,32 +681,32 @@ function ContractFormDialog({ open, initial, onClose, onSubmit, submitting }: { 
           <label>Client phone (WhatsApp)<input value={form.clientPhone} onChange={(e) => set("clientPhone", e.target.value)} placeholder="+254 7XX XXX XXX" /></label>
         </div></fieldset>
         <fieldset><legend>Scope of work</legend><div className="record-fields">
-          <label>Project name<input value={form.projectName} onChange={(e) => set("projectName", e.target.value)} /></label>
-          <label>Website type<input value={form.websiteType} onChange={(e) => set("websiteType", e.target.value)} /></label>
-          <label className="wide">Pages included<input value={form.pages} onChange={(e) => set("pages", e.target.value)} /></label>
-          <label className="wide">Features included<input value={form.features} onChange={(e) => set("features", e.target.value)} /></label>
+          <label>Project name<input value={form.projectName} maxLength={contractFieldLimits.projectName} onChange={(e) => set("projectName", e.target.value)} /></label>
+          <label>Website type<input value={form.websiteType} maxLength={contractFieldLimits.websiteType} onChange={(e) => set("websiteType", e.target.value)} /></label>
+          <label className="wide">Pages included<input value={form.pages} maxLength={contractFieldLimits.pages} onChange={(e) => set("pages", e.target.value)} /></label>
+          <label className="wide">Features included<textarea rows={3} value={form.features} maxLength={contractFieldLimits.features} onChange={(e) => set("features", e.target.value)} /></label>
         </div></fieldset>
         <fieldset><legend>Price & payment</legend><div className="record-fields">
           <label>Total cost (KES)<input type="number" min="0" value={form.totalCost} onChange={(e) => set("totalCost", e.target.value)} /></label>
           <label>Deposit (%)<input type="number" min="0" max="100" value={form.depositPercent} onChange={(e) => set("depositPercent", e.target.value)} /></label>
-          <label>Payment method<input value={form.paymentMethod} onChange={(e) => set("paymentMethod", e.target.value)} /></label>
+          <label>Payment method<input value={form.paymentMethod} maxLength={contractFieldLimits.paymentMethod} onChange={(e) => set("paymentMethod", e.target.value)} /></label>
         </div></fieldset>
         <fieldset><legend>Timeline & revisions</legend><div className="record-fields">
-          <label>Start date<input value={form.startDate} onChange={(e) => set("startDate", e.target.value)} placeholder="Upon receipt of deposit" /></label>
-          <label>Delivery (weeks)<input value={form.deliveryWeeks} onChange={(e) => set("deliveryWeeks", e.target.value)} /></label>
+          <label>Start date<input value={form.startDate} maxLength={contractFieldLimits.startDate} onChange={(e) => set("startDate", e.target.value)} placeholder="Upon receipt of deposit" /></label>
+          <label>Delivery (weeks)<input value={form.deliveryWeeks} maxLength={contractFieldLimits.deliveryWeeks} onChange={(e) => set("deliveryWeeks", e.target.value)} placeholder="e.g. 2 or 3-4" /></label>
           <label>Included revision rounds<input type="number" min="0" value={form.revisionRounds} onChange={(e) => set("revisionRounds", e.target.value)} /></label>
           <label>Extra revision cost (KES)<input type="number" min="0" value={form.extraRevisionCost} onChange={(e) => set("extraRevisionCost", e.target.value)} /></label>
-          <label>Content due date<input value={form.contentDueDate} onChange={(e) => set("contentDueDate", e.target.value)} /></label>
+          <label>Content due date<input value={form.contentDueDate} maxLength={contractFieldLimits.contentDueDate} onChange={(e) => set("contentDueDate", e.target.value)} /></label>
         </div></fieldset>
         <fieldset><legend>Hosting, domain & maintenance</legend><div className="record-fields">
           <label className="checkbox-field"><input type="checkbox" checked={form.domainIncluded} onChange={(e) => set("domainIncluded", e.target.checked)} />Domain included</label>
-          <label>Domain name<input value={form.domainName} onChange={(e) => set("domainName", e.target.value)} disabled={!form.domainIncluded} /></label>
+          <label>Domain name<input value={form.domainName} maxLength={contractFieldLimits.domainName} onChange={(e) => set("domainName", e.target.value)} disabled={!form.domainIncluded} /></label>
           <label className="checkbox-field"><input type="checkbox" checked={form.hostingIncluded} onChange={(e) => set("hostingIncluded", e.target.checked)} />Hosting included</label>
-          <label>Hosting platform<input value={form.hostingPlatform} onChange={(e) => set("hostingPlatform", e.target.value)} disabled={!form.hostingIncluded} /></label>
+          <label>Hosting platform<input value={form.hostingPlatform} maxLength={contractFieldLimits.hostingPlatform} onChange={(e) => set("hostingPlatform", e.target.value)} disabled={!form.hostingIncluded} /></label>
           <label>Annual hosting cost (KES)<input type="number" min="0" value={form.hostingCost} onChange={(e) => set("hostingCost", e.target.value)} /></label>
           <label>Monthly maintenance fee (KES)<input type="number" min="0" value={form.maintenanceFee} onChange={(e) => set("maintenanceFee", e.target.value)} /></label>
         </div></fieldset>
-        <fieldset><legend>Additional notes</legend><textarea rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Anything else specific to this project" /></fieldset>
+        <fieldset><legend>Additional notes</legend><textarea rows={3} value={form.notes} maxLength={contractFieldLimits.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Anything else specific to this project" /></fieldset>
       </div>
       <div className="record-dialog-actions">
         <button className="record-reset" onClick={onClose}>Cancel</button>

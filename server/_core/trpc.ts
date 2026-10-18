@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { Request, Response } from "express";
 import superjson from "superjson";
+import { ZodError } from "zod";
 import { findSession, touchSession } from "../db.js";
 import { COOKIE_NAME } from "./cookies.js";
 
@@ -51,9 +52,31 @@ const t = initTRPC.context<Context>().create({
       console.error("Unhandled server error:", error.cause || error);
       return { ...shape, message: "Something went wrong on our end. Please try again." };
     }
+    // Input validation failures otherwise reach the UI as a raw JSON dump of Zod issues.
+    if (error.code === "BAD_REQUEST" && error.cause instanceof ZodError) {
+      return { ...shape, message: formatZodError(error.cause) };
+    }
     return shape;
   },
 });
+
+function fieldLabel(path: PropertyKey[]) {
+  const key = [...path].reverse().find((part) => typeof part === "string");
+  if (!key) return "A field";
+  const words = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function formatZodError(zodError: ZodError) {
+  const messages = zodError.issues.slice(0, 3).map((issue) => {
+    const label = fieldLabel(issue.path);
+    if (issue.code === "too_big" && issue.origin === "string") return `${label} is too long (max ${issue.maximum} characters).`;
+    if (issue.code === "too_big" && issue.origin === "number") return `${label} must be at most ${issue.maximum}.`;
+    if (issue.code === "too_small" && issue.origin === "string" && Number(issue.minimum) <= 1) return `${label} is required.`;
+    return `${label}: ${issue.message}`;
+  });
+  return messages.join(" ");
+}
 export const router = t.router;
 export const publicProcedure = t.procedure;
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
