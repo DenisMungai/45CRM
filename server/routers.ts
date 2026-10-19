@@ -20,7 +20,7 @@ import { contractFieldLimits as limits, defaultContractFields, newSigningToken, 
 import { renderContractPdf } from "./contractPdf.js";
 import * as invoiceDocs from "./invoiceDocs.js";
 import { renderInvoicePdf } from "./invoicePdf.js";
-import { CURRENCIES, defaultInvoiceFields, type InvoiceFields } from "../shared/invoice.js";
+import { CURRENCIES, defaultInvoiceFields, MPESA_CODE_PATTERN, normaliseMpesaCode, type InvoiceFields } from "../shared/invoice.js";
 import { ENV } from "./_core/env.js";
 import { hashPassword, issueSession, verifyPassword } from "./auth.js";
 import * as renewalsDb from "./renewals.js";
@@ -557,6 +557,17 @@ export const appRouter = router({
         return { ...parsed, duplicate: false, matched: true };
       }
       return { ...parsed, duplicate: result.duplicate, matched: result.matched };
+    }),
+    // An M-Pesa code typed in on an invoice (the client paid and shared the code).
+    recordCode: protectedProcedure.input(z.object({
+      invoiceId: z.string().uuid(),
+      code: z.string().transform(normaliseMpesaCode).refine((code) => MPESA_CODE_PATTERN.test(code), "Enter the M-Pesa code from the confirmation SMS, e.g. SJK3H2L9QX."),
+      amount: z.number().int().positive("Enter the amount paid.").max(1_000_000_000),
+      paidAt: z.coerce.date(),
+    })).mutation(async ({ ctx, input }) => {
+      const error = await mpesa.recordMpesaCode(ctx.user.workspaceId, input);
+      if (error) fail(error, { NOT_FOUND: "Invoice not found.", ALREADY_ON_INVOICE: "This M-Pesa code is already recorded on this invoice.", ALREADY_MATCHED: "This M-Pesa code is already recorded against another invoice." });
+      return { success: true as const };
     }),
     match: protectedProcedure.input(z.object({ id: z.string().uuid(), invoiceId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       const error = await mpesa.matchMpesa(ctx.user.workspaceId, input.id, input.invoiceId);

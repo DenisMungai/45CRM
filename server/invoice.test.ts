@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { invoiceDocuments, invoices, payments, workspaces } from "../drizzle/schema.js";
-import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, templateHeadline, templateMetaRows, templatePaymentRows, templateTotalRows, type InvoiceFields } from "../shared/invoice.js";
+import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, templateHeadline, templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateTotalRows, MPESA_CODE_PATTERN, normaliseMpesaCode, type InvoiceFields } from "../shared/invoice.js";
 import { renderInvoicePdf, pdfSafe } from "./invoicePdf.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -186,6 +186,14 @@ describe("template rows", () => {
       { label: "Bank", value: "Equity · 45Creatives · 0123456789" },
     ]);
     expect(templatePaymentRows({ ...view, payment: { ...view.payment, mpesaNumber: "522522" } })[0].value).toBe("Paybill / Till 522522 · Account 45C-INV-0001");
+  });
+  it("lists each payment received with its M-Pesa code", () => {
+    expect(templatePaymentsReceived(view)).toEqual([{ label: "17 Oct 2026", value: "M-Pesa · PAY-1 · KSh 20,000.00" }]);
+  });
+  it("accepts M-Pesa codes typed with spaces or in lower case", () => {
+    expect(normaliseMpesaCode(" sjk3 h2l9qx ")).toBe("SJK3H2L9QX");
+    expect(MPESA_CODE_PATTERN.test("SJK3H2L9QX")).toBe(true);
+    expect(MPESA_CODE_PATTERN.test("SJK-3H2")).toBe(false);
   });
   it("uses the document's own payment terms in the closing note", () => {
     expect(documentTerms("invoice", "Payable in full")).toEqual(["Please quote the invoice number when paying.", "Payable in full."]);

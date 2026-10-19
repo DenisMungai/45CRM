@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import {
   INVOICE_TAGLINE, formatInvoiceMoney, formatPlainAmount, templateBusinessLines, templateClientLines, templateFooter, templateHeadline,
-  templateMetaRows, templatePaymentRows, templateProjectDetails, templateTotalRows, type InvoiceView,
+  templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateProjectDetails, templateTotalRows, type InvoiceView,
 } from "../shared/invoice.js";
 
 const W = 595.28; // A4 at 72dpi
@@ -104,7 +104,7 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
     lines.forEach((line, i) => text(line, M + metaOffset, y - 9 - i * 12.5, body));
     y -= 4.3 + lines.length * 12.5;
   }
-  y -= 30;
+  y -= 26;
 
   // --- From / Bill to -----------------------------------------------------------------------
   const colX = M + CW / 2 + 0.5;
@@ -117,7 +117,7 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   const partyBaseline = (i: number) => y - 9 - (i === 0 ? 0 : i * lead + 2);
   from.forEach((line, i) => text(line.text, M, partyBaseline(i), body, line.font));
   to.forEach((line, i) => text(line.text, colX, partyBaseline(i), body, line.font));
-  y -= partyRows * lead + 2 + 34;
+  y -= partyRows * lead + 2 + 28;
 
   // --- "KSh 0.00 due DD MMM YYYY" and project ------------------------------------------------
   const headline = templateHeadline(view);
@@ -131,7 +131,7 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
   if (projectDetails.length) {
     for (const line of wrap(projectDetails.join(" · "), regular, 8.5, CW)) { y -= 12; text(line, M, y, 8.5, regular, MUTED); }
   }
-  y -= 30;
+  y -= 24;
 
   // --- Line items ---------------------------------------------------------------------------
   const cols = { qty: M + CW * 0.6, unit: M + CW * 0.8, amount: W - M };
@@ -174,7 +174,7 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
     y -= 19.5;
     if (index < totals.length - 2) rule(totalsX, W - M, y);
   });
-  y -= 36;
+  y -= 24;
 
   // --- How to pay / Next steps --------------------------------------------------------------
   const valueX = M + 50;
@@ -201,8 +201,25 @@ export async function renderInvoicePdf(view: InvoiceView): Promise<Uint8Array> {
       y -= (row.lines.length - 1) * 12.5;
     }
     for (const line of extra) { y -= 12; text(line, M, y, 8.5, regular, MUTED); }
+    // Payments received: date, then method, M-Pesa code / reference and amount.
+    const received = templatePaymentsReceived(view);
+    if (received.length) {
+      const dateWidth = 62;
+      const receivedRows = received.map((row) => ({ label: row.label, lines: wrap(row.value, regular, body, CW - dateWidth) }));
+      y -= 16;
+      ensure(14 + receivedRows.reduce((sum, row) => sum + row.lines.length, 0) * 16.8);
+      text("Payments received", M, y - 9, body, bold);
+      y -= 9 + 3;
+      for (const row of receivedRows) {
+        ensure(16.8 * row.lines.length);
+        y -= 16.8;
+        text(row.label, M + 2, y, body, regular, SOFT);
+        row.lines.forEach((line, i) => text(line, M + dateWidth, y - i * 12.5, body));
+        y -= (row.lines.length - 1) * 12.5;
+      }
+    }
   }
-  y -= 22;
+  y -= 18;
 
   // --- Closing note and any special instructions ---------------------------------------------
   const notes = [view.terms.join(" "), view.notes.trim()].filter(Boolean);

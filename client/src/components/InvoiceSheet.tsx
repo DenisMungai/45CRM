@@ -1,6 +1,6 @@
 import {
   INVOICE_TAGLINE, formatInvoiceMoney, formatPlainAmount, templateBusinessLines, templateClientLines, templateFooter, templateHeadline,
-  templateMetaRows, templatePaymentRows, templateProjectDetails, templateTotalRows, type InvoiceView,
+  templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateProjectDetails, templateTotalRows, type InvoiceView,
 } from "@shared/invoice";
 
 /** The 45Creatives invoice / quotation template. Used in the CRM, on public links, and when printing. */
@@ -13,6 +13,7 @@ export default function InvoiceSheet({ view }: { view: InvoiceView }) {
   const projectDetails = templateProjectDetails(view);
   const totals = templateTotalRows(view);
   const payRows = templatePaymentRows(view);
+  const received = templatePaymentsReceived(view);
   const qty = (value: number) => Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
   return <article className="inv-sheet" aria-label={`${docName} ${view.number}`}>
     <header className="inv-head">
@@ -40,6 +41,10 @@ export default function InvoiceSheet({ view }: { view: InvoiceView }) {
         <h3>How to pay</h3>
         {payRows.length ? <dl className="inv-pay-rows">{payRows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl> : <p>Payment details available on request.</p>}
         {view.currency !== "KES" ? <p className="inv-pay-note">Payments in Kenya shillings are credited at KSh {formatPlainAmount(view.exchangeRate)} per {view.currency}.</p> : null}
+        {received.length ? <>
+          <h3 className="inv-received-title">Payments received</h3>
+          <dl className="inv-pay-rows inv-received">{received.map((row, i) => <div key={i}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
+        </> : null}
       </>}
     </section>
     <p className="inv-note">{view.terms.join(" ")}</p>

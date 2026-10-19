@@ -678,6 +678,8 @@ button { border: 0; }
 .inv-pay-rows div { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 12px; }
 .inv-pay-rows dt { padding-left: 2px; color: var(--inv-soft); }
 .inv-pay-rows dd { overflow-wrap: anywhere; }
+.inv-sheet .inv-received-title { margin-top: 22px !important; }
+.inv-received div { grid-template-columns: 86px minmax(0, 1fr); }
 .inv-pay-note { margin-top: 6px !important; color: var(--inv-muted); font-size: 12px; }
 .inv-note { margin-top: 26px !important; color: var(--inv-soft); font-size: 11.5px; }
 .inv-note + .inv-note { margin-top: 8px !important; white-space: pre-line; }
@@ -918,3 +920,18 @@ button { border: 0; }
 
 /* URLs, secrets and code samples inside settings labels keep their real (case-sensitive) text. */
 .settings-fields .contract-link-box, .settings-fields .contract-link-box span, .settings-fields code, .settings-fields .webhook-snippet { text-transform: none; letter-spacing: normal; }
+/* M-Pesa code entry in the invoice popup */
+.mpesa-code-box { flex-wrap: wrap; }
+.mpesa-code-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.mpesa-code-fields label { display: grid; gap: 4px; color: #a7aeb1; font-size: 8.5px; }
+.mpesa-code-fields input { width: 120px; height: 30px; padding: 0 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; outline: 0; color: #eef0ed; background: rgba(4,6,8,.31); font-family: "Manrope", sans-serif; font-size: 10px; }
+.mpesa-code-fields label:first-child input { width: 130px; letter-spacing: .06em; text-transform: uppercase; }
+.mpesa-code-fields button { height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,189,189,.24); color: #fff; background: linear-gradient(135deg, rgba(198,70,72,.93), rgba(149,42,45,.84)); font-size: 10px; font-weight: 700; cursor: pointer; }
+.mpesa-code-fields button:disabled { opacity: .45; cursor: not-allowed; }
+.mpesa-code-summary { display: flex; flex-wrap: wrap; gap: 6px 18px; width: 100%; margin: 2px 0 0; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.07); }
+.mpesa-code-summary div { display: flex; flex-direction: column; gap: 2px; }
+.mpesa-code-summary dt { color: #8f969b; font-size: 8.5px; }
+.mpesa-code-summary dd { margin: 0; color: #eceeec; font-family: "DM Sans", sans-serif; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mpesa-code-summary div:last-child dd { color: #9fdcb2; }
+.mpesa-code-summary div.over dd { color: #ffbdbd; }
+@media (max-width: 720px) { .mpesa-code-fields { width: 100%; } .mpesa-code-fields label { flex: 1 1 120px; } .mpesa-code-fields input, .mpesa-code-fields label:first-child input { width: 100%; } }

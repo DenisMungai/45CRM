@@ -31,7 +31,7 @@ export default function MpesaPanel({ openInvoices }: { openInvoices: { id: strin
       </form>
       <p className="panel-subtle">Payments are matched when the M-Pesa account number is the invoice number (as the invoice asks), or when exactly one unpaid invoice has the same balance. With a Safaricom Daraja paybill, payments arrive here automatically: see Settings → Integrations.</p>
       {rows.length ? <div className="table-scroller"><table className="data-table"><thead><tr><th>Code</th><th>Received</th><th>From</th><th>Account</th><th>Amount</th><th>Invoice</th><th></th></tr></thead><tbody>{rows.slice(0, 15).map((r) => <tr key={r.id}>
-        <td className="strong-cell">{r.transId}<small className="cell-sub">{r.source === "daraja" ? "Daraja" : "SMS"}</small></td>
+        <td className="strong-cell">{r.transId}<small className="cell-sub">{r.source === "daraja" ? "Daraja" : r.source === "manual" ? "Entered on invoice" : "SMS"}</small></td>
         <td>{day(r.paidAt)}</td>
         <td>{r.payerName || "-"}{r.payerPhone ? <small className="cell-sub">{r.payerPhone}</small> : null}</td>
         <td>{r.accountRef || "-"}</td>

@@ -64,7 +64,7 @@ async function findInvoiceFor(workspaceId: string, accountRef: string | null, am
   return byAmount.length === 1 ? byAmount[0].id : null;
 }
 
-export type IncomingMpesa = { transId: string; amount: number; accountRef: string | null; payerName: string | null; payerPhone: string | null; paidAt: Date; source: "daraja" | "sms"; raw?: unknown };
+export type IncomingMpesa = { transId: string; amount: number; accountRef: string | null; payerName: string | null; payerPhone: string | null; paidAt: Date; source: "daraja" | "sms" | "manual"; raw?: unknown };
 
 /** Stores an M-Pesa payment once (by transaction code) and records it against its invoice when it can be matched. */
 export async function receiveMpesa(workspaceId: string, input: IncomingMpesa) {
@@ -78,6 +78,25 @@ export async function receiveMpesa(workspaceId: string, input: IncomingMpesa) {
   else await db.appendDashboardActivity(workspaceId, [{ recordId: inserted.id, tableName: "payments", action: "M-Pesa unmatched", detail: `M-Pesa ${inserted.transId} for KSh ${inserted.amount.toLocaleString("en-KE")}${input.accountRef ? ` (account "${input.accountRef}")` : ""} couldn't be matched to an invoice. Match it under Payments.`, actorUserId: null }]);
   const transaction = await getDb().select().from(mpesaTransactions).where(eq(mpesaTransactions.id, inserted.id)).limit(1).then((r) => r[0]);
   return { duplicate: false as const, transaction, matched: Boolean(invoiceId) };
+}
+
+/**
+ * An M-Pesa code typed in on an invoice. Stored once like any other M-Pesa payment and recorded
+ * against that invoice. A code that is already on record is linked to this invoice if it is still
+ * unmatched, and refused if it was recorded against a different invoice.
+ */
+export async function recordMpesaCode(workspaceId: string, input: { invoiceId: string; code: string; amount: number; paidAt: Date }) {
+  const invoice = await getDb().select().from(invoices).where(and(eq(invoices.workspaceId, workspaceId), eq(invoices.id, input.invoiceId))).limit(1).then((r) => r[0]);
+  if (!invoice) return "NOT_FOUND" as const;
+  const transId = input.code.toUpperCase();
+  const existing = await getDb().select().from(mpesaTransactions).where(and(eq(mpesaTransactions.workspaceId, workspaceId), eq(mpesaTransactions.transId, transId))).limit(1).then((r) => r[0]);
+  if (existing) {
+    if (existing.paymentId) return existing.invoiceId === input.invoiceId ? "ALREADY_ON_INVOICE" as const : "ALREADY_MATCHED" as const;
+    return applyToInvoice(workspaceId, existing.id, input.invoiceId);
+  }
+  const inserted = await getDb().insert(mpesaTransactions).values({ workspaceId, transId, amount: input.amount, accountRef: invoice.number, payerName: null, payerPhone: null, paidAt: input.paidAt, source: "manual" }).onConflictDoNothing().returning().then((r) => r[0]);
+  if (!inserted) return "ALREADY_MATCHED" as const;
+  return applyToInvoice(workspaceId, inserted.id, input.invoiceId);
 }
 
 export async function matchMpesa(workspaceId: string, txId: string, invoiceId: string) { return applyToInvoice(workspaceId, txId, invoiceId); }

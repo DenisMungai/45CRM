@@ -210,6 +210,8 @@ export type InvoiceView = {
   totals: { subtotal: number; discount: number; total: number; received: number; balance: number };
   payment: { mpesaNumber: string; mpesaAccount: string; pochiNumber: string; pochiName: string; bankName: string; bankAccountName: string; bankAccountNumber: string; reference: string; confirmationContact: string };
   paymentRecord: { date: string; method: string; reference: string; amount: number; count: number } | null;
+  /** Every completed payment, oldest first, in the document's currency. `reference` is the M-Pesa code for M-Pesa payments. */
+  payments: { date: string; method: string; reference: string; amount: number }[];
   notes: string;
   terms: string[];
 };
@@ -272,6 +274,9 @@ export function buildInvoiceView(input: {
       reference: input.number,
       confirmationContact: fields.confirmationContact || input.business.phone || input.business.email,
     },
+    payments: kind === "invoice"
+      ? [...input.payments].sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()).map((p) => ({ date: formatInvoiceDate(p.paidAt), method: p.method || "Payment", reference: p.number, amount: toDoc(p.amount) }))
+      : [],
     paymentRecord: kind === "invoice" && latest ? { date: formatInvoiceDate(latest.paidAt), method: latest.method || "-", reference: latest.number, amount: toDoc(latest.amount), count: input.payments.length } : null,
     notes: fields.notes,
     terms: documentTerms(kind, fields.paymentTerms),
@@ -342,6 +347,15 @@ export function templatePaymentRows(view: InvoiceView): TemplateRow[] {
   if (bank.length) rows.push({ label: "Bank", value: bank.join(" \u00B7 ") });
   return rows;
 }
+
+/** "Payments received" rows: the date, then method, M-Pesa code / reference and amount. */
+export function templatePaymentsReceived(view: InvoiceView): TemplateRow[] {
+  return view.payments.map((p) => ({ label: p.date, value: [p.method, p.reference, formatInvoiceMoney(p.amount, view.currency)].filter(Boolean).join(" · ") }));
+}
+
+/** M-Pesa transaction codes are 10 letters and digits (e.g. SJK3H2L9QX); allow a little slack in length. */
+export const MPESA_CODE_PATTERN = /^[A-Z0-9]{8,12}$/;
+export function normaliseMpesaCode(value: string): string { return value.replace(/\s+/g, "").toUpperCase(); }
 
 /** Contact lines for the business ("From") column. */
 export function templateBusinessLines(view: InvoiceView): string[] {
