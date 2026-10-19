@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { invoiceDocuments, invoices, payments, workspaces } from "../drizzle/schema.js";
-import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, templateHeadline, templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateTotalRows, MPESA_CODE_PATTERN, normaliseMpesaCode, printableItems, type InvoiceFields } from "../shared/invoice.js";
+import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, QUOTE_PAYMENT_TERMS, templateHeadline, templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateTotalRows, MPESA_CODE_PATTERN, normaliseMpesaCode, printableItems, type InvoiceFields } from "../shared/invoice.js";
 import { renderInvoicePdf, pdfSafe } from "./invoicePdf.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -84,7 +84,7 @@ describe("invoice view", () => {
   it("carries no KRA PIN, tax or VAT content", () => {
     const serialised = JSON.stringify(view).toLowerCase();
     for (const word of ["kra", "vat", "etims", "taxable", "tax /"]) expect(serialised).not.toContain(word);
-    expect(view.terms).toEqual(["Please quote the invoice number when paying.", STANDARD_PAYMENT_TERMS]);
+    expect(view.terms).toEqual([STANDARD_PAYMENT_TERMS]);
   });
 });
 
@@ -208,7 +208,13 @@ describe("template rows", () => {
     expect(printableItems(unpriced)).toEqual(unpriced);
   });
   it("uses the document's own payment terms in the closing note", () => {
-    expect(documentTerms("invoice", "Payable in full")).toEqual(["Please quote the invoice number when paying.", "Payable in full."]);
-    expect(documentTerms("quote", "")[1]).toBe(STANDARD_PAYMENT_TERMS);
+    expect(documentTerms("invoice", "Payable in full")).toEqual(["Payable in full."]);
+    expect(documentTerms("quote", "")[1]).toBe(QUOTE_PAYMENT_TERMS);
+  });
+  it("drops the deposit clause from invoices, including terms saved on older ones", () => {
+    expect(documentTerms("invoice", "50% deposit before work begins; balance due before launch or handover.")).toEqual(["Balance due before launch or handover."]);
+    expect(documentTerms("invoice", "40% deposit before work begins; balance due before launch or handover.")).toEqual(["Balance due before launch or handover."]);
+    expect(documentTerms("invoice", "50% deposit, balance before launch")).toEqual([STANDARD_PAYMENT_TERMS]);
+    expect(documentTerms("invoice", "")).toEqual([STANDARD_PAYMENT_TERMS]);
   });
 });

@@ -56,7 +56,7 @@ export default function InvoiceDetailsDialog({ open, number, initial, saving, on
           {text("Client / Company", "clientName")}{text("Contact person", "contactPerson")}{text("Email", "clientEmail", { type: "email" })}{text("Phone (WhatsApp)", "clientPhone", { placeholder: "+254 7XX XXX XXX" })}{text("Billing address", "billingAddress", { wide: true, placeholder: "Address / Town / County" })}
         </div></fieldset>
         <fieldset><legend>Project details</legend><div className="record-fields">
-          {text("Project", "projectName")}{text("Quotation / contract ref", "quotationRef")}{text("Scope", "scope", { wide: true, placeholder: "Brief description of agreed work" })}{text("Payment terms", "paymentTerms", { wide: true, placeholder: "50% deposit before work begins; balance due before launch or handover." })}
+          {text("Project", "projectName")}{text("Quotation / contract ref", "quotationRef")}{text("Scope", "scope", { wide: true, placeholder: "Brief description of agreed work" })}{text("Payment terms", "paymentTerms", { wide: true, placeholder: isQuote ? "50% deposit before work begins; balance due before launch or handover." : "Balance due before launch or handover." })}
           <label>Project milestone<input list="inv-milestones" value={form.milestone} onChange={(e) => set("milestone", e.target.value)} /><datalist id="inv-milestones"><option value="Deposit" /><option value="Milestone" /><option value="Final balance" /></datalist></label>
         </div></fieldset>
         <fieldset><legend>Itemized services</legend>

@@ -53,8 +53,10 @@ export function rateOf(fields: Pick<InvoiceFields, "currency" | "exchangeRate"> 
   return Number.isFinite(rate) && rate > 0 ? rate : 1;
 }
 
-/** The template's payment terms, used when an invoice or quote has none of its own. */
-export const STANDARD_PAYMENT_TERMS = "50% deposit before work begins; balance due before launch or handover.";
+/** Payment terms printed on an invoice that has none of its own. */
+export const STANDARD_PAYMENT_TERMS = "Balance due before launch or handover.";
+/** A quotation still states the deposit, since that is where it is agreed. */
+export const QUOTE_PAYMENT_TERMS = "50% deposit before work begins; balance due before launch or handover.";
 
 export const defaultInvoiceFields: InvoiceFields = {
   businessWebsite: "45creative.co.ke",
@@ -108,12 +110,19 @@ export const INVOICE_TAGLINE = "WEB DESIGN · DEVELOPMENT";
 /** Ends a sentence with a full stop unless it already has closing punctuation. */
 const sentence = (text: string) => { const t = text.trim(); return t && !/[.!?]$/.test(t) ? `${t}.` : t; };
 
+/** Deposit wording that invoices no longer print, including terms saved on older invoices. */
+const DEPOSIT_CLAUSE = /^\s*\d+(\.\d+)?% deposit before work begins;\s*/i;
+const OLD_DEFAULT_TERMS = /^50% deposit, balance before launch\.?$/i;
+
 /** The closing note under "How to pay" (invoices) or "Next steps" (quotes), one sentence per entry. */
 export function documentTerms(kind: "invoice" | "quote", paymentTerms: string): string[] {
-  const terms = sentence(paymentTerms || "") || STANDARD_PAYMENT_TERMS;
-  return kind === "quote"
-    ? ["Prices are valid until the date shown.", terms, "Changes outside the quoted scope are quoted separately."]
-    : ["Please quote the invoice number when paying.", terms];
+  const own = sentence(paymentTerms || "");
+  if (kind === "quote") {
+    const terms = !own || own === STANDARD_PAYMENT_TERMS ? QUOTE_PAYMENT_TERMS : own;
+    return ["Prices are valid until the date shown.", terms, "Changes outside the quoted scope are quoted separately."];
+  }
+  const rest = OLD_DEFAULT_TERMS.test(own) ? "" : own.replace(DEPOSIT_CLAUSE, "");
+  return [rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : STANDARD_PAYMENT_TERMS];
 }
 
 /**
