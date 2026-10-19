@@ -707,6 +707,10 @@ button { border: 0; }
   .inv-brand { text-align: left; }
   .inv-parties { grid-template-columns: 1fr; gap: 20px; margin-top: 32px; }
   .inv-headline { margin-top: 34px !important; font-size: 18px; }
+  .inv-table { min-width: 0; }
+  .inv-sheet .inv-table td { font-size: 12px; }
+  .inv-sheet .inv-table th:nth-child(2), .inv-sheet .inv-table td:nth-child(2) { width: 32px; }
+  .inv-sheet .inv-table th:nth-child(n+3), .inv-sheet .inv-table td:nth-child(n+3) { width: auto; padding-left: 8px; white-space: nowrap; }
   .inv-totals { width: 100%; }
   .inv-howto { margin-top: 40px; }
   .inv-edit-row { grid-template-columns: minmax(0, 1fr) 56px 90px 26px; }
