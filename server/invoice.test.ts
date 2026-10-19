@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { invoiceDocuments, invoices, payments, workspaces } from "../drizzle/schema.js";
-import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, templateHeadline, templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateTotalRows, MPESA_CODE_PATTERN, normaliseMpesaCode, type InvoiceFields } from "../shared/invoice.js";
+import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, templateHeadline, templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateTotalRows, MPESA_CODE_PATTERN, normaliseMpesaCode, printableItems, type InvoiceFields } from "../shared/invoice.js";
 import { renderInvoicePdf, pdfSafe } from "./invoicePdf.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -194,6 +194,18 @@ describe("template rows", () => {
     expect(normaliseMpesaCode(" sjk3 h2l9qx ")).toBe("SJK3H2L9QX");
     expect(MPESA_CODE_PATTERN.test("SJK3H2L9QX")).toBe(true);
     expect(MPESA_CODE_PATTERN.test("SJK-3H2")).toBe(false);
+  });
+  it("leaves lines without a unit price off the invoice", () => {
+    const priced = buildInvoiceView({
+      number: "45C-INV-0003", storedStatus: "sent", issueDate: "2026-10-16", dueDate: "2026-10-30", sent: true,
+      business: { name: "45Creatives", address: "", email: "", phone: "" },
+      fields: { ...fields, discount: 0, items: [{ description: "Website design & UI/UX", quantity: 1, unitPrice: 30000 }, { description: "Domain & hosting", quantity: 1, unitPrice: 0 }] },
+      payments: [],
+    });
+    expect(priced.items.map((item) => item.description)).toEqual(["Website design & UI/UX"]);
+    expect(priced.totals.total).toBe(30000);
+    const unpriced = [{ description: "A", unitPrice: 0 }, { description: "B", unitPrice: 0 }];
+    expect(printableItems(unpriced)).toEqual(unpriced);
   });
   it("uses the document's own payment terms in the closing note", () => {
     expect(documentTerms("invoice", "Payable in full")).toEqual(["Please quote the invoice number when paying.", "Payable in full."]);

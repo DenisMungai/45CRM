@@ -20,7 +20,7 @@ import { contractFieldLimits as limits, defaultContractFields, newSigningToken, 
 import { renderContractPdf } from "./contractPdf.js";
 import * as invoiceDocs from "./invoiceDocs.js";
 import { renderInvoicePdf } from "./invoicePdf.js";
-import { CURRENCIES, defaultInvoiceFields, MPESA_CODE_PATTERN, normaliseMpesaCode, type InvoiceFields } from "../shared/invoice.js";
+import { CURRENCIES, DEPOSIT_METHODS, defaultInvoiceFields, MPESA_CODE_PATTERN, normaliseMpesaCode, type InvoiceFields } from "../shared/invoice.js";
 import { ENV } from "./_core/env.js";
 import { hashPassword, issueSession, verifyPassword } from "./auth.js";
 import * as renewalsDb from "./renewals.js";
@@ -464,11 +464,23 @@ export const appRouter = router({
     defaults: protectedProcedure.query(({ ctx }) => invoiceDocs.latestPaymentInstructions(ctx.user.workspaceId)),
     // Preview only: the real number is assigned by `create`, so it can differ if someone else creates one first.
     nextNumber: protectedProcedure.query(({ ctx }) => invoiceDocs.nextInvoiceNumber(ctx.user.workspaceId)),
-    create: protectedProcedure.input(z.object({ fields: invoiceFieldsInput, issueDate: z.coerce.date(), dueDate: z.coerce.date() })).mutation(async ({ ctx, input }) => {
+    create: protectedProcedure.input(z.object({
+      fields: invoiceFieldsInput, issueDate: z.coerce.date(), dueDate: z.coerce.date(),
+      // A deposit already received, in KES. Recorded as a payment on the new invoice.
+      deposit: z.object({
+        amount: z.number().int().positive("Enter the deposit amount.").max(1_000_000_000),
+        method: z.enum(DEPOSIT_METHODS),
+        reference: z.string().trim().max(60).default(""),
+        paidAt: z.coerce.date(),
+      }).refine((d) => d.method !== "M-Pesa" || !d.reference || MPESA_CODE_PATTERN.test(normaliseMpesaCode(d.reference)), { message: "Enter the M-Pesa code from the confirmation SMS, e.g. SJK3H2L9QX.", path: ["reference"] }).optional(),
+    })).mutation(async ({ ctx, input }) => {
       if (input.dueDate < input.issueDate) throw new TRPCError({ code: "BAD_REQUEST", message: "The due date cannot be before the issue date." });
       const invoice = await invoiceDocs.createInvoiceWithDocument(ctx.user.workspaceId, ctx.user.id, input);
       await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: invoice.id, tableName: "invoices", action: "Created", detail: `Invoice ${invoice.number} created for ${input.fields.clientName}.`, actorUserId: ctx.user.id }]);
-      return { invoiceId: invoice.id, number: invoice.number, total: invoice.total, issueDate: invoice.issueDate, dueDate: invoice.dueDate };
+      // The invoice exists either way; a deposit that can't be recorded comes back as a warning.
+      const depositError = input.deposit ? await mpesa.recordInvoiceDeposit(ctx.user.workspaceId, invoice, input.deposit) : null;
+      const depositWarning = depositError ? ({ NOT_FOUND: "the invoice could not be found", ALREADY_ON_INVOICE: "that M-Pesa code is already on this invoice", ALREADY_MATCHED: "that M-Pesa code is already recorded against another invoice", REFERENCE_IN_USE: "that payment reference is already used" } as Record<string, string>)[depositError] ?? "it could not be saved" : null;
+      return { invoiceId: invoice.id, number: invoice.number, total: invoice.total, issueDate: invoice.issueDate, dueDate: invoice.dueDate, depositWarning };
     }),
     // Everything the invoice sheet needs: the rendered view, the editable fields (defaults when the
     // invoice has no saved details yet) and send tracking.

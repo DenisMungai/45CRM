@@ -216,6 +216,16 @@ export type InvoiceView = {
   terms: string[];
 };
 
+/** Lines without a unit price are left off the document, unless every line is unpriced. */
+export function printableItems<T extends { unitPrice: number }>(items: T[]): T[] {
+  const priced = items.filter((item) => Number(item.unitPrice) > 0);
+  return priced.length ? priced : items;
+}
+
+/** A deposit already received, keyed in when the invoice is created. Amount is in KES, like every payment. */
+export const DEPOSIT_METHODS = ["M-Pesa", "Bank", "Cash"] as const;
+export type InvoiceDeposit = { amount: number; method: (typeof DEPOSIT_METHODS)[number]; reference: string; paidAt: Date | string };
+
 export type InvoicePaymentInput = { paidAt: Date | string; method: string | null; number: string; amount: number };
 
 export function buildInvoiceView(input: {
@@ -261,7 +271,7 @@ export function buildInvoiceView(input: {
     business: { ...input.business, website: fields.businessWebsite },
     billTo: { client: fields.clientName, contact: fields.contactPerson, email: fields.clientEmail, phone: fields.clientPhone, address: fields.billingAddress },
     project: { name: fields.projectName, scope: fields.scope, quotationRef: fields.quotationRef, paymentTerms: fields.paymentTerms, milestone: fields.milestone },
-    items: fields.items.map((item, index) => ({ description: item.description, quantity: item.quantity, unitPrice: item.unitPrice, amount: totals.lines[index] })),
+    items: printableItems(fields.items.map((item, index) => ({ description: item.description, quantity: item.quantity, unitPrice: item.unitPrice, amount: totals.lines[index] }))),
     totals: { subtotal: totals.subtotal, discount: totals.discount, total: totals.total, received: totals.received, balance: totals.balance },
     payment: {
       mpesaNumber: fields.mpesaNumber,

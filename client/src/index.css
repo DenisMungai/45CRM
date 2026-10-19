@@ -365,8 +365,8 @@ button { border: 0; }
 .record-close svg { width: 15px; height: 15px; }
 .record-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
 .record-fields label { display: grid; gap: 6px; color: #adb4b6; font-size: 8px; font-weight: 800; letter-spacing: .075em; text-transform: uppercase; }
-.record-fields input { width: 100%; height: 37px; padding: 0 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: 0; color: #eef0ed; background: rgba(4,6,8,.31); font-family: "Manrope", sans-serif; font-size: 10px; box-shadow: inset 0 1px rgba(255,255,255,.05); transition: border-color 140ms ease, box-shadow 140ms ease; }
-.record-fields input:focus { border-color: rgba(221,102,104,.54); box-shadow: 0 0 0 3px rgba(194,68,71,.12), inset 0 1px rgba(255,255,255,.07); }
+.record-fields input, .record-fields select { width: 100%; height: 37px; padding: 0 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: 0; color: #eef0ed; background: rgba(4,6,8,.31); font-family: "Manrope", sans-serif; font-size: 10px; box-shadow: inset 0 1px rgba(255,255,255,.05); transition: border-color 140ms ease, box-shadow 140ms ease; }
+.record-fields input:focus, .record-fields select:focus { border-color: rgba(221,102,104,.54); box-shadow: 0 0 0 3px rgba(194,68,71,.12), inset 0 1px rgba(255,255,255,.07); }
 .auth-field { position: relative; }
 .auth-field svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: #8f969c; pointer-events: none; z-index: 1; }
 .auth-field input { width: 100%; height: 42px; padding: 0 14px 0 40px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; outline: 0; color: #eef0ed; background: rgba(4,6,8,.31); font-family: "Manrope", sans-serif; font-size: 13px; box-shadow: inset 0 1px rgba(255,255,255,.05); transition: border-color 140ms ease, box-shadow 140ms ease; }
@@ -920,6 +920,12 @@ button { border: 0; }
 
 /* URLs, secrets and code samples inside settings labels keep their real (case-sensitive) text. */
 .settings-fields .contract-link-box, .settings-fields .contract-link-box span, .settings-fields code, .settings-fields .webhook-snippet { text-transform: none; letter-spacing: normal; }
+/* Total / deposit / amount due under the deposit fields in the invoice editor */
+.inv-edit-due { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 22px; margin: 10px 0 0; }
+.inv-edit-due div { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.inv-edit-due dt { color: #a7aeb1; font-size: 8.5px; }
+.inv-edit-due dd { margin: 0; color: #e8e9e7; font-family: "DM Sans", sans-serif; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.inv-edit-due div:last-child dd { color: #9fdcb2; font-size: 12.5px; }
 /* M-Pesa code entry in the invoice popup */
 .mpesa-code-box { flex-wrap: wrap; }
 .mpesa-code-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
@@ -935,3 +941,4 @@ button { border: 0; }
 .mpesa-code-summary div:last-child dd { color: #9fdcb2; }
 .mpesa-code-summary div.over dd { color: #ffbdbd; }
 @media (max-width: 720px) { .mpesa-code-fields { width: 100%; } .mpesa-code-fields label { flex: 1 1 120px; } .mpesa-code-fields input, .mpesa-code-fields label:first-child input { width: 100%; } }
+.record-fields select option { color: #141619; }

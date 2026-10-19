@@ -3,7 +3,8 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "./db.js";
 import * as db from "./db.js";
 import { invoices, mpesaTransactions, payments, workspaces } from "../drizzle/schema.js";
-import { syncPaymentTransaction } from "./crm.js";
+import { syncPaymentTransaction, upsertPayment } from "./crm.js";
+import { MPESA_CODE_PATTERN, normaliseMpesaCode, type InvoiceDeposit } from "../shared/invoice.js";
 import { listInvoiceSummaries, refreshInvoiceSummary } from "./invoiceDocs.js";
 import { publicUrl } from "./shareLinks.js";
 
@@ -97,6 +98,22 @@ export async function recordMpesaCode(workspaceId: string, input: { invoiceId: s
   const inserted = await getDb().insert(mpesaTransactions).values({ workspaceId, transId, amount: input.amount, accountRef: invoice.number, payerName: null, payerPhone: null, paidAt: input.paidAt, source: "manual" }).onConflictDoNothing().returning().then((r) => r[0]);
   if (!inserted) return "ALREADY_MATCHED" as const;
   return applyToInvoice(workspaceId, inserted.id, input.invoiceId);
+}
+
+/**
+ * Records the deposit keyed in on a new invoice as a real payment, so the invoice's amount paid,
+ * balance, status and the ledger all follow it. An M-Pesa code goes through the M-Pesa records
+ * (stored once, never reused); bank and cash deposits get the reference given, or `<invoice>-DEP`.
+ */
+export async function recordInvoiceDeposit(workspaceId: string, invoice: { id: string; number: string; clientId: string | null }, deposit: InvoiceDeposit) {
+  const paidAt = new Date(deposit.paidAt);
+  const code = normaliseMpesaCode(deposit.reference);
+  if (deposit.method === "M-Pesa" && MPESA_CODE_PATTERN.test(code)) return recordMpesaCode(workspaceId, { invoiceId: invoice.id, code, amount: deposit.amount, paidAt });
+  const number = deposit.reference.trim().slice(0, 60) || `${invoice.number}-DEP`;
+  const taken = await getDb().select({ id: payments.id }).from(payments).where(and(eq(payments.workspaceId, workspaceId), eq(payments.number, number))).limit(1).then((r) => r[0]);
+  if (taken) return "REFERENCE_IN_USE" as const;
+  await upsertPayment(workspaceId, { invoiceId: invoice.id, clientId: invoice.clientId, number, amount: deposit.amount, method: deposit.method, status: "completed", paidAt });
+  return null;
 }
 
 export async function matchMpesa(workspaceId: string, txId: string, invoiceId: string) { return applyToInvoice(workspaceId, txId, invoiceId); }

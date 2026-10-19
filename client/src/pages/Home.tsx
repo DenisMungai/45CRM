@@ -17,7 +17,7 @@ import { BillingSettings, MpesaIntegration } from "@/components/SettingsBilling"
 import { daysUntil, renewalUrgency } from "@shared/renewal";
 import InvoiceDetailsDialog from "@/components/InvoiceDetailsDialog";
 import InvoiceViewDialog, { invoiceStatusTone, type InvoicePaymentTarget } from "@/components/InvoiceViewDialog";
-import { defaultInvoiceFields, formatInvoiceMoney, nextInvoiceNumberFrom, type InvoiceFields } from "@shared/invoice";
+import { defaultInvoiceFields, formatInvoiceMoney, nextInvoiceNumberFrom, type InvoiceDeposit, type InvoiceFields } from "@shared/invoice";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { toast } from "sonner";
@@ -1304,13 +1304,15 @@ export default function Home() {
       setViewingQuoteId(created.quoteId);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the quotation"); }
   };
-  const createInvoice = async (fields: InvoiceFields, meta?: { number: string; issueDate: string; dueDate: string }) => {
+  const createInvoice = async (fields: InvoiceFields, meta?: { number: string; issueDate: string; dueDate: string }, deposit?: InvoiceDeposit) => {
     if (!meta) return;
     try {
-      const created = await createInvoiceDoc.mutateAsync({ fields, issueDate: meta.issueDate, dueDate: meta.dueDate });
+      const created = await createInvoiceDoc.mutateAsync({ fields, issueDate: meta.issueDate, dueDate: meta.dueDate, deposit: deposit ? { ...deposit, paidAt: new Date(`${deposit.paidAt}T12:00:00`) } : undefined });
       setInvoiceFormOpen(false);
       utils.invoiceDocs.summaries.invalidate(); utils.invoiceDocs.nextNumber.invalidate(); utils.invoiceDocs.defaults.invalidate(); utils.records.list.invalidate();
-      toast.success(`Invoice ${created.number} created`);
+      toast.success(`Invoice ${created.number} created${deposit && !created.depositWarning ? " with the deposit recorded" : ""}`);
+      if (created.depositWarning) toast.error(`The deposit wasn't recorded: ${created.depositWarning}. Add it from the invoice's payment box.`);
+      if (deposit) utils.mpesa.list.invalidate();
       setViewingInvoiceId(created.invoiceId);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the invoice"); }
   };
