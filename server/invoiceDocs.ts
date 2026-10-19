@@ -157,14 +157,14 @@ function isUniqueViolation(error: unknown) {
  * (45C-INV-0001, 0002, ...). Two people creating invoices at once can race for the same number;
  * the unique index rejects the loser, which then takes the next one.
  */
-export async function createInvoiceWithDocument(workspaceId: string, userId: string, input: { fields: InvoiceFields; issueDate: Date; dueDate: Date }) {
+export async function createInvoiceWithDocument(workspaceId: string, userId: string, input: { fields: InvoiceFields; issueDate: Date; dueDate: Date; status?: "draft" | "sent" }) {
   const total = computeInvoiceTotals(input.fields.items, input.fields.discount).total;
   for (let attempt = 0; ; attempt++) {
     const number = await nextInvoiceNumber(workspaceId);
     try {
       return await getDb().transaction(async (tx) => {
         const client = await tx.select({ id: clients.id }).from(clients).where(and(eq(clients.workspaceId, workspaceId), eq(clients.name, input.fields.clientName))).limit(1).then((r) => r[0]);
-        const invoice = await tx.insert(invoices).values({ workspaceId, clientId: client?.id ?? null, number, status: "draft", subtotal: total, total, issueDate: input.issueDate, dueDate: input.dueDate }).returning().then((r) => r[0]);
+        const invoice = await tx.insert(invoices).values({ workspaceId, clientId: client?.id ?? null, number, status: input.status ?? "draft", subtotal: total, total, issueDate: input.issueDate, dueDate: input.dueDate }).returning().then((r) => r[0]);
         await tx.insert(invoiceDocuments).values({ workspaceId, invoiceId: invoice.id, fields: input.fields, createdByUserId: userId });
         return invoice;
       });
@@ -173,6 +173,26 @@ export async function createInvoiceWithDocument(workspaceId: string, userId: str
       throw error;
     }
   }
+}
+
+/**
+ * What a client already owes, entered on the client form, becomes an invoice so it is counted,
+ * paid, reminded and settled like any other. It starts as unpaid (not a draft) so it counts as
+ * outstanding straight away.
+ */
+export async function createBalanceInvoice(workspaceId: string, userId: string, input: { clientName: string; clientEmail: string; clientPhone: string; amount: number; kind: "opening" | "adjustment" }) {
+  const description = input.kind === "opening" ? "Opening balance" : "Balance adjustment";
+  const now = new Date();
+  const fields: InvoiceFields = {
+    ...defaultInvoiceFields,
+    ...(await latestPaymentInstructions(workspaceId)),
+    clientName: input.clientName,
+    clientEmail: input.clientEmail,
+    clientPhone: input.clientPhone,
+    milestone: description,
+    items: [{ description: `${description} owed by ${input.clientName}`.slice(0, 300), quantity: 1, unitPrice: input.amount }],
+  };
+  return createInvoiceWithDocument(workspaceId, userId, { fields, issueDate: now, dueDate: new Date(now.getTime() + 14 * 86_400_000), status: "sent" });
 }
 
 export async function saveInvoiceDocument(workspaceId: string, userId: string, invoiceId: string, fields: InvoiceFields) {

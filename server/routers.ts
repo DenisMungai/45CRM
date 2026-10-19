@@ -482,6 +482,18 @@ export const appRouter = router({
       const depositWarning = depositError ? ({ NOT_FOUND: "the invoice could not be found", ALREADY_ON_INVOICE: "that M-Pesa code is already on this invoice", ALREADY_MATCHED: "that M-Pesa code is already recorded against another invoice", REFERENCE_IN_USE: "that payment reference is already used" } as Record<string, string>)[depositError] ?? "it could not be saved" : null;
       return { invoiceId: invoice.id, number: invoice.number, total: invoice.total, issueDate: invoice.issueDate, dueDate: invoice.dueDate, depositWarning };
     }),
+    // An outstanding amount typed on the client form, recorded as an invoice for that client.
+    createBalance: protectedProcedure.input(z.object({
+      clientName: z.string().trim().min(1).max(180),
+      clientEmail: optionalEmail.default(""),
+      clientPhone: z.string().trim().max(40).default(""),
+      amount: z.number().int().positive("Enter the amount owed.").max(1_000_000_000),
+      kind: z.enum(["opening", "adjustment"]),
+    })).mutation(async ({ ctx, input }) => {
+      const invoice = await invoiceDocs.createBalanceInvoice(ctx.user.workspaceId, ctx.user.id, input);
+      await db.appendDashboardActivity(ctx.user.workspaceId, [{ recordId: invoice.id, tableName: "invoices", action: "Created", detail: `Invoice ${invoice.number} created for ${input.clientName}'s ${input.kind === "opening" ? "opening balance" : "balance adjustment"} of KSh ${input.amount.toLocaleString("en-KE")}.`, actorUserId: ctx.user.id }]);
+      return { invoiceId: invoice.id, number: invoice.number };
+    }),
     // Everything the invoice sheet needs: the rendered view, the editable fields (defaults when the
     // invoice has no saved details yet) and send tracking.
     view: protectedProcedure.input(z.object({ invoiceId: z.string().uuid(), clientName: z.string().max(180).optional() })).query(async ({ ctx, input }) => {

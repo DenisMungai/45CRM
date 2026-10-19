@@ -1343,8 +1343,20 @@ export default function Home() {
 
   // --- Editors per table --------------------------------------------------------------------
   const clientLabels = ["Client name", "Primary contact", "Email", "Phone", "Outstanding amount", "Status"];
-  const clientExtras = { readOnly: [4], options: { 5: { values: clientStatusOptions, strict: true } } };
-  const editClient = (index: number) => openEditor("client", clientLabels, clientRows[index].slice(0, 6), (next) => updateStoredRow(setClientRows, index, [...next, statusTone(next[5])]), clientExtras);
+  const clientExtras = { options: { 5: { values: clientStatusOptions, strict: true } } };
+  // "Outstanding amount" is what the client's invoices still owe. Raising it records the extra as a
+  // balance invoice, so it can be paid, reminded and settled like any other; lowering it needs a payment.
+  const createBalance = trpc.invoiceDocs.createBalance.useMutation({
+    onSuccess: (created, input) => { utils.invoiceDocs.summaries.invalidate(); utils.invoiceDocs.nextNumber.invalidate(); utils.records.list.invalidate(); toast.success(`Invoice ${created.number} created for ${input.clientName}'s ${input.kind === "opening" ? "opening balance" : "extra balance"} of ${formatKsh(input.amount)}.`); },
+    onError: (error) => toast.error(`The outstanding amount wasn't recorded: ${error.message}`),
+  });
+  const recordOutstanding = (row: EditableRow, previous: number, kind: "opening" | "adjustment") => {
+    const entered = Math.round(parseAmount(row[4]));
+    if (entered > previous) createBalance.mutate({ clientName: row[0].trim(), clientEmail: /^\S+@\S+\.\S+$/.test(row[2].trim()) ? row[2].trim() : "", clientPhone: row[3].trim().slice(0, 40), amount: entered - previous, kind });
+    else if (entered < previous) toast.info(`To lower what ${row[0].trim()} owes, record a payment on their invoice. The outstanding amount stays ${formatKsh(previous)}.`);
+    return formatKsh(Math.max(entered, previous));
+  };
+  const editClient = (index: number) => openEditor("client", clientLabels, clientRows[index].slice(0, 6), (next) => { const outstanding = recordOutstanding(next, Math.round(parseAmount(clientRows[index][4])), "adjustment"); updateStoredRow(setClientRows, index, [...next.slice(0, 4), outstanding, next[5], statusTone(next[5])]); }, clientExtras);
   const leadLabels = ["Lead name", "Company", "Email", "Phone", "Source", "Estimated value", "Status", "Assigned to"];
   const leadExtras = { options: { 4: { values: ["Website contact form", "Referral", "WhatsApp", "Instagram", "Facebook", "Google", "LinkedIn", "Walk-in"] }, 6: { values: leadStatusOptions, strict: true }, 7: { values: memberNames } } };
   const leadFromEditor = (n: EditableRow) => [n[0], n[1], n[4], formatKsh(parseAmount(n[5])), n[6], statusTone(n[6]), n[7] || "Unassigned", n[2], n[3]];
@@ -1364,7 +1376,7 @@ export default function Home() {
   const openSearchResult = (target: PageKey, row: EditableRow, table: string) => { if (table === "clients") { setSelectedClientId(getRecordId(row)); setQuery(""); setPage("Client Details"); return; } setPage(target); };
   const selectedClient = selectedClientId ? clientRows.find((row) => getRecordId(row) === selectedClientId) ?? null : null;
   // Projects, quotes, invoices and payments link to a client by name, so warn about a duplicate.
-  const newClient = () => openEditor("new client", clientLabels, ["", "", "", "", "KSh 0", "Active"], (next, id) => { if (findClient(next[0])) toast.warning(`A client named “${next[0].trim()}” already exists. Records link to clients by name, so give each client a distinct name.`); setClientRows((current) => [...current, withId([...next, statusTone(next[5])], id)]); }, clientExtras);
+  const newClient = () => openEditor("new client", clientLabels, ["", "", "", "", "KSh 0", "Active"], (next, id) => { if (findClient(next[0])) toast.warning(`A client named “${next[0].trim()}” already exists. Records link to clients by name, so give each client a distinct name.`); const outstanding = recordOutstanding(next, 0, "opening"); setClientRows((current) => [...current, withId([...next.slice(0, 4), outstanding, next[5], statusTone(next[5])], id)]); }, clientExtras);
 
   const content = (() => { switch (page) {
     case "Dashboard": return <DashboardPage onNavigate={navigate} clientRows={clientRows} invoiceRows={invoiceRows} transactionRows={transactionRows} projectRows={projectRows} inventoryRows={inventoryRows} />;
