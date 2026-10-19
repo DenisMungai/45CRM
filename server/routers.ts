@@ -89,6 +89,8 @@ const invoiceFieldsInput = z.object({
   discount: z.number().min(0).max(1_000_000_000).default(0),
   mpesaNumber: z.string().trim().max(120).default(""),
   mpesaAccount: z.string().trim().max(120).default(""),
+  pochiNumber: z.string().trim().max(40).default(""),
+  pochiName: z.string().trim().max(120).default(""),
   bankName: z.string().trim().max(120).default(""),
   bankAccountName: z.string().trim().max(160).default(""),
   bankAccountNumber: z.string().trim().max(60).default(""),

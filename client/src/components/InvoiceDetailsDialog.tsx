@@ -45,7 +45,7 @@ export default function InvoiceDetailsDialog({ open, number, initial, saving, on
           {text("Client / Company", "clientName")}{text("Contact person", "contactPerson")}{text("Email", "clientEmail", { type: "email" })}{text("Phone (WhatsApp)", "clientPhone", { placeholder: "+254 7XX XXX XXX" })}{text("Billing address", "billingAddress", { wide: true, placeholder: "Address / Town / County" })}
         </div></fieldset>
         <fieldset><legend>Project details</legend><div className="record-fields">
-          {text("Project", "projectName")}{text("Quotation / contract ref", "quotationRef")}{text("Scope", "scope", { wide: true, placeholder: "Brief description of agreed work" })}{text("Payment terms", "paymentTerms")}
+          {text("Project", "projectName")}{text("Quotation / contract ref", "quotationRef")}{text("Scope", "scope", { wide: true, placeholder: "Brief description of agreed work" })}{text("Payment terms", "paymentTerms", { wide: true, placeholder: "50% deposit before work begins; balance due before launch or handover." })}
           <label>Project milestone<input list="inv-milestones" value={form.milestone} onChange={(e) => set("milestone", e.target.value)} /><datalist id="inv-milestones"><option value="Deposit" /><option value="Milestone" /><option value="Final balance" /></datalist></label>
         </div></fieldset>
         <fieldset><legend>Itemized services</legend>
@@ -66,9 +66,9 @@ export default function InvoiceDetailsDialog({ open, number, initial, saving, on
           </div>
         </fieldset>
         {isQuote ? null : <fieldset><legend>Payment instructions</legend><div className="record-fields">
-          {text("M-Pesa Paybill / Till number", "mpesaNumber")}{text("M-Pesa account", "mpesaAccount", { placeholder: "Defaults to the invoice number" })}{text("Bank name", "bankName")}{text("Bank account name", "bankAccountName")}{text("Bank account number", "bankAccountNumber")}{text("Send confirmation to", "confirmationContact", { placeholder: "WhatsApp / email" })}{text("Website (footer)", "businessWebsite")}
+          {text("M-Pesa Paybill / Till number", "mpesaNumber")}{text("M-Pesa account", "mpesaAccount", { placeholder: "Defaults to the invoice number" })}{text("Send Money / Pochi number", "pochiNumber", { placeholder: "07XX XXX XXX" })}{text("Registered name", "pochiName", { placeholder: "Name shown in M-Pesa" })}{text("Bank name", "bankName")}{text("Bank account name", "bankAccountName")}{text("Bank account number", "bankAccountNumber")}{text("Send confirmation to", "confirmationContact", { placeholder: "WhatsApp / email" })}{text("Website (footer)", "businessWebsite")}
         </div></fieldset>}
-        <fieldset><legend>Notes / special instructions</legend><textarea rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Shown under Terms & Notes" /></fieldset>
+        <fieldset><legend>Notes / special instructions</legend><textarea rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Shown at the end of the document" /></fieldset>
       </div>
       {problem ? <p className="panel-subtle" role="alert">{problem}</p> : null}
       <div className="record-dialog-actions"><button className="record-reset" onClick={onClose}>Cancel</button><button className="record-save" disabled={saving || Boolean(problem)} onClick={() => onSubmit(fields, meta)}><Check />{saving ? "Saving…" : isQuote ? (creating ? "Create quotation" : "Save quotation") : creating ? "Create invoice" : "Save invoice details"}</button></div>

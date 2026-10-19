@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { invoiceDocuments, invoices, payments, workspaces } from "../drizzle/schema.js";
-import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, INVOICE_TERMS, INVOICE_TERMS_EMPHASIS, invoiceTermRuns, nextInvoiceNumberFrom, nextStoredInvoiceStatus, type InvoiceFields } from "../shared/invoice.js";
+import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, templateHeadline, templateMetaRows, templatePaymentRows, templateTotalRows, type InvoiceFields } from "../shared/invoice.js";
 import { renderInvoicePdf, pdfSafe } from "./invoicePdf.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -84,7 +84,7 @@ describe("invoice view", () => {
   it("carries no KRA PIN, tax or VAT content", () => {
     const serialised = JSON.stringify(view).toLowerCase();
     for (const word of ["kra", "vat", "etims", "taxable", "tax /"]) expect(serialised).not.toContain(word);
-    expect(INVOICE_TERMS).toHaveLength(2);
+    expect(view.terms).toEqual(["Please quote the invoice number when paying.", STANDARD_PAYMENT_TERMS]);
   });
 });
 
@@ -159,11 +159,36 @@ describe("invoice numbering", () => {
   });
 });
 
-describe("terms emphasis", () => {
-  it("bolds the deposit sentence of the first term, as in the template", () => {
-    const runs = invoiceTermRuns(INVOICE_TERMS[0]);
-    expect(runs.filter((run) => run.bold).map((run) => run.text)).toEqual([INVOICE_TERMS_EMPHASIS]);
-    expect(runs.map((run) => run.text).join("")).toBe(INVOICE_TERMS[0]);
-    expect(invoiceTermRuns(INVOICE_TERMS[1])).toEqual([{ text: INVOICE_TERMS[1], bold: false }]);
+describe("template rows", () => {
+  const view = buildInvoiceView({
+    number: "45C-INV-0001", storedStatus: "sent", issueDate: "2026-10-16", dueDate: "2026-10-30", sent: true,
+    business: { name: "45Creatives", address: "Nairobi, Kenya", email: "", phone: "" },
+    fields: { ...fields, pochiNumber: "0712 345 678", pochiName: "Jane W" },
+    payments: [{ paidAt: "2026-10-17", method: "M-Pesa", number: "PAY-1", amount: 20000 }], now: new Date("2026-10-20"),
+  });
+  it("labels the number and dates like the template", () => {
+    expect(templateMetaRows(view).map((row) => row.label)).toEqual(["Invoice number", "Date of issue", "Date due"]);
+    expect(templateHeadline(view)).toEqual({ amount: "KSh 20,000.00", text: "due 30 Oct 2026" });
+  });
+  it("shows subtotal, discount, total, deposit and amount due with minus signs", () => {
+    expect(templateTotalRows(view)).toEqual([
+      { label: "Subtotal", value: "KSh 45,000.00" },
+      { label: "Discount", value: "– KSh 5,000.00" },
+      { label: "Total", value: "KSh 40,000.00" },
+      { label: "Deposit paid", value: "– KSh 20,000.00" },
+      { label: "Amount due", value: "KSh 20,000.00" },
+    ]);
+  });
+  it("lists M-Pesa, Send Money / Pochi and bank rows without repeating 'Till'", () => {
+    expect(templatePaymentRows(view)).toEqual([
+      { label: "M-Pesa", value: "Till 123456 · Account 45C-INV-0001" },
+      { label: "Phone", value: "Send Money / Pochi to 0712 345 678 · Name Jane W" },
+      { label: "Bank", value: "Equity · 45Creatives · 0123456789" },
+    ]);
+    expect(templatePaymentRows({ ...view, payment: { ...view.payment, mpesaNumber: "522522" } })[0].value).toBe("Paybill / Till 522522 · Account 45C-INV-0001");
+  });
+  it("uses the document's own payment terms in the closing note", () => {
+    expect(documentTerms("invoice", "Payable in full")).toEqual(["Please quote the invoice number when paying.", "Payable in full."]);
+    expect(documentTerms("quote", "")[1]).toBe(STANDARD_PAYMENT_TERMS);
   });
 });

@@ -7,7 +7,7 @@ import { isEmailDeliveryConfigured, sendEmail } from "./emailDelivery.js";
 import { buildWhatsAppLink } from "./whatsappDelivery.js";
 import { daysUntil } from "../shared/renewal.js";
 import { reminderStage } from "../shared/reminders.js";
-import { formatInvoiceMoney, type InvoiceView } from "../shared/invoice.js";
+import { formatInvoiceMoney, templatePaymentRows, type InvoiceView } from "../shared/invoice.js";
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 
@@ -19,7 +19,7 @@ export function reminderMessage(view: InvoiceView, viewUrl: string) {
     `Hi ${view.billTo.contact || view.billTo.client},`,
     "",
     opener,
-    view.payment.mpesaNumber ? `M-Pesa: ${view.payment.mpesaNumber}, account ${view.payment.mpesaAccount}.` : null,
+    ...templatePaymentRows(view).map((row) => `${row.label}: ${row.value}.`),
     "",
     "View and download the invoice here:",
     viewUrl,

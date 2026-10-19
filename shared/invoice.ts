@@ -28,6 +28,9 @@ export type InvoiceFields = {
   // Payment instructions
   mpesaNumber: string;
   mpesaAccount: string;
+  // Send Money / Pochi la Biashara
+  pochiNumber: string;
+  pochiName: string;
   bankName: string;
   bankAccountName: string;
   bankAccountNumber: string;
@@ -50,6 +53,9 @@ export function rateOf(fields: Pick<InvoiceFields, "currency" | "exchangeRate"> 
   return Number.isFinite(rate) && rate > 0 ? rate : 1;
 }
 
+/** The template's payment terms, used when an invoice or quote has none of its own. */
+export const STANDARD_PAYMENT_TERMS = "50% deposit before work begins; balance due before launch or handover.";
+
 export const defaultInvoiceFields: InvoiceFields = {
   businessWebsite: "45creative.co.ke",
   clientName: "",
@@ -60,12 +66,18 @@ export const defaultInvoiceFields: InvoiceFields = {
   projectName: "",
   scope: "",
   quotationRef: "",
-  paymentTerms: "50% deposit, balance before launch",
+  paymentTerms: STANDARD_PAYMENT_TERMS,
   milestone: "",
-  items: [{ description: "Website design & UI/UX", quantity: 1, unitPrice: 0 }],
+  items: [
+    { description: "Website design & UI/UX", quantity: 1, unitPrice: 0 },
+    { description: "Website development", quantity: 1, unitPrice: 0 },
+    { description: "Domain & hosting", quantity: 1, unitPrice: 0 },
+  ],
   discount: 0,
   mpesaNumber: "",
   mpesaAccount: "",
+  pochiNumber: "",
+  pochiName: "",
   bankName: "",
   bankAccountName: "",
   bankAccountNumber: "",
@@ -77,7 +89,7 @@ export const defaultInvoiceFields: InvoiceFields = {
 
 /** The payment-instruction fields that stay the same from one invoice to the next. */
 export const paymentInstructionKeys = [
-  "mpesaNumber", "mpesaAccount", "bankName", "bankAccountName", "bankAccountNumber", "confirmationContact", "businessWebsite",
+  "mpesaNumber", "mpesaAccount", "pochiNumber", "pochiName", "bankName", "bankAccountName", "bankAccountNumber", "confirmationContact", "businessWebsite",
 ] as const satisfies readonly (keyof InvoiceFields)[];
 
 export const INVOICE_NUMBER_PREFIX = "45C-INV-";
@@ -91,26 +103,17 @@ export function nextInvoiceNumberFrom(existing: string[]): string {
 
 export type InvoiceDisplayStatus = "DRAFT" | "UNPAID" | "PART-PAID" | "PAID" | "OVERDUE" | "VOID";
 
-export const INVOICE_TAGLINE = "WEB DESIGN \u00B7 DEVELOPMENT \u00B7 DIGITAL";
+export const INVOICE_TAGLINE = "WEB DESIGN · DEVELOPMENT";
 
-/** Standard terms from the template, without the tax / eTIMS note. */
-export const INVOICE_TERMS = [
-  "Work covered by this invoice follows the approved proposal or agreement. Unless otherwise agreed in writing, a 50% deposit is required before work begins and the remaining balance is payable before website launch or handover.",
-  "Third-party fees (domain, hosting, paid plugins, stock assets, payment gateway charges) are included only where listed above.",
-];
+/** Ends a sentence with a full stop unless it already has closing punctuation. */
+const sentence = (text: string) => { const t = text.trim(); return t && !/[.!?]$/.test(t) ? `${t}.` : t; };
 
-/** The part of the terms the template sets in bold. */
-export const INVOICE_TERMS_EMPHASIS = "Unless otherwise agreed in writing, a 50% deposit is required before work begins and the remaining balance is payable before website launch or handover.";
-
-/** Splits a term into plain and bold runs so every renderer bolds the same words. */
-export function invoiceTermRuns(term: string): { text: string; bold: boolean }[] {
-  const at = term.indexOf(INVOICE_TERMS_EMPHASIS);
-  if (at < 0) return [{ text: term, bold: false }];
-  return [
-    { text: term.slice(0, at), bold: false },
-    { text: INVOICE_TERMS_EMPHASIS, bold: true },
-    { text: term.slice(at + INVOICE_TERMS_EMPHASIS.length), bold: false },
-  ].filter((run) => run.text);
+/** The closing note under "How to pay" (invoices) or "Next steps" (quotes), one sentence per entry. */
+export function documentTerms(kind: "invoice" | "quote", paymentTerms: string): string[] {
+  const terms = sentence(paymentTerms || "") || STANDARD_PAYMENT_TERMS;
+  return kind === "quote"
+    ? ["Prices are valid until the date shown.", terms, "Changes outside the quoted scope are quoted separately."]
+    : ["Please quote the invoice number when paying.", terms];
 }
 
 /**
@@ -130,12 +133,6 @@ export function formatPlainAmount(value: number): string {
 export function formatInvoiceMoney(value: number, currency: string = "KES"): string {
   return `${currencyPrefix(currency)} ${formatPlainAmount(value)}`;
 }
-
-/** Standard quotation terms. */
-export const QUOTE_TERMS = [
-  "Prices are valid until the date shown. Work starts once the quotation is accepted and the agreed deposit is received; unless otherwise agreed in writing, a 50% deposit is required before work begins and the remaining balance is payable before website launch or handover.",
-  "Third-party fees (domain, hosting, paid plugins, stock assets, payment gateway charges) are included only where listed above. Changes outside the quoted scope are quoted separately.",
-];
 
 export type QuoteDisplayStatus = "DRAFT" | "SENT" | "ACCEPTED" | "DECLINED" | "EXPIRED";
 export function deriveQuoteStatus(input: { decision: string | null | undefined; sent: boolean; validUntil: Date | string | null; now?: Date }): QuoteDisplayStatus {
@@ -211,7 +208,7 @@ export type InvoiceView = {
   project: { name: string; scope: string; quotationRef: string; paymentTerms: string; milestone: string };
   items: { description: string; quantity: number; unitPrice: number; amount: number }[];
   totals: { subtotal: number; discount: number; total: number; received: number; balance: number };
-  payment: { mpesaNumber: string; mpesaAccount: string; bankName: string; bankAccountName: string; bankAccountNumber: string; reference: string; confirmationContact: string };
+  payment: { mpesaNumber: string; mpesaAccount: string; pochiNumber: string; pochiName: string; bankName: string; bankAccountName: string; bankAccountNumber: string; reference: string; confirmationContact: string };
   paymentRecord: { date: string; method: string; reference: string; amount: number; count: number } | null;
   notes: string;
   terms: string[];
@@ -267,6 +264,8 @@ export function buildInvoiceView(input: {
     payment: {
       mpesaNumber: fields.mpesaNumber,
       mpesaAccount: fields.mpesaAccount || input.number,
+      pochiNumber: fields.pochiNumber || "",
+      pochiName: fields.pochiName || "",
       bankName: fields.bankName,
       bankAccountName: fields.bankAccountName,
       bankAccountNumber: fields.bankAccountNumber,
@@ -275,6 +274,86 @@ export function buildInvoiceView(input: {
     },
     paymentRecord: kind === "invoice" && latest ? { date: formatInvoiceDate(latest.paidAt), method: latest.method || "-", reference: latest.number, amount: toDoc(latest.amount), count: input.payments.length } : null,
     notes: fields.notes,
-    terms: kind === "quote" ? QUOTE_TERMS : INVOICE_TERMS,
+    terms: documentTerms(kind, fields.paymentTerms),
   };
+}
+
+/*
+ * Layout helpers for the 45Creatives template. The in-app sheet and the PDF both build their
+ * rows from these, so the wording, order and signs always match between the two.
+ */
+
+export type TemplateRow = { label: string; value: string };
+
+/** "Invoice number / Date of issue / Date due" block under the title. */
+export function templateMetaRows(view: InvoiceView): TemplateRow[] {
+  const isQuote = view.kind === "quote";
+  const notable = ["PAID", "VOID", "ACCEPTED", "DECLINED", "EXPIRED"].includes(view.status);
+  return [
+    { label: isQuote ? "Quotation number" : "Invoice number", value: view.number },
+    { label: "Date of issue", value: view.issueDate },
+    { label: isQuote ? "Valid until" : "Date due", value: view.dueDate },
+    ...(view.currency !== "KES" ? [{ label: "Currency", value: view.currency }] : []),
+    ...(notable ? [{ label: "Status", value: view.status.charAt(0) + view.status.slice(1).toLowerCase() }] : []),
+  ];
+}
+
+/** The large line above the table: "KSh 0.00 due 30 Oct 2026". */
+export function templateHeadline(view: InvoiceView): { amount: string; text: string } {
+  return view.kind === "quote"
+    ? { amount: formatInvoiceMoney(view.totals.total, view.currency), text: `valid until ${view.dueDate}` }
+    : { amount: formatInvoiceMoney(view.totals.balance, view.currency), text: `due ${view.dueDate}` };
+}
+
+/** Optional project details shown in small type under "Project:". */
+export function templateProjectDetails(view: InvoiceView): string[] {
+  return [
+    view.project.scope,
+    view.project.quotationRef && `Ref ${view.project.quotationRef}`,
+    view.project.milestone && `Milestone: ${view.project.milestone}`,
+  ].filter((line): line is string => Boolean(line && line.trim()));
+}
+
+/** Totals under the table. The last row is the bold, ruled one ("Amount due" or the quote total). */
+export function templateTotalRows(view: InvoiceView): TemplateRow[] {
+  const money = (value: number) => formatInvoiceMoney(value, view.currency);
+  const { totals } = view;
+  const rows: TemplateRow[] = [
+    { label: "Subtotal", value: money(totals.subtotal) },
+    { label: "Discount", value: `\u2013 ${money(totals.discount)}` },
+    { label: "Total", value: money(totals.total) },
+  ];
+  if (view.kind === "quote") return rows;
+  const paidLabel = totals.received > 0 && totals.balance <= 0 ? "Paid" : (view.paymentRecord?.count ?? 0) > 1 ? "Payments received" : "Deposit paid";
+  return [...rows, { label: paidLabel, value: `\u2013 ${money(totals.received)}` }, { label: "Amount due", value: money(totals.balance) }];
+}
+
+/** "How to pay" rows: M-Pesa paybill/till, Send Money / Pochi, and bank. Empty methods are left out. */
+export function templatePaymentRows(view: InvoiceView): TemplateRow[] {
+  const p = view.payment;
+  const rows: TemplateRow[] = [];
+  if (p.mpesaNumber.trim()) {
+    // Accept "Till 123456" as well as a bare number without printing "Till" twice.
+    const number = /^(paybill|till)\b/i.test(p.mpesaNumber.trim()) ? p.mpesaNumber.trim() : `Paybill / Till ${p.mpesaNumber.trim()}`;
+    rows.push({ label: "M-Pesa", value: `${number} \u00B7 Account ${p.mpesaAccount}` });
+  }
+  if (p.pochiNumber.trim()) rows.push({ label: "Phone", value: `Send Money / Pochi to ${p.pochiNumber.trim()}${p.pochiName.trim() ? ` \u00B7 Name ${p.pochiName.trim()}` : ""}` });
+  const bank = [p.bankName, p.bankAccountName, p.bankAccountNumber].map((v) => v.trim()).filter(Boolean);
+  if (bank.length) rows.push({ label: "Bank", value: bank.join(" \u00B7 ") });
+  return rows;
+}
+
+/** Contact lines for the business ("From") column. */
+export function templateBusinessLines(view: InvoiceView): string[] {
+  return [view.business.address, view.business.email, view.business.phone, view.business.website].filter((line) => Boolean(line && line.trim()));
+}
+
+/** Contact lines for the "Bill to" column. */
+export function templateClientLines(view: InvoiceView): string[] {
+  return [view.billTo.client, view.billTo.contact, view.billTo.address, view.billTo.email, view.billTo.phone].filter((line) => Boolean(line && line.trim()));
+}
+
+/** "Thank you for choosing 45Creatives · 45creative.co.ke" */
+export function templateFooter(view: InvoiceView): string {
+  return [`Thank you for choosing ${view.business.name || "45Creatives"}`, view.business.website].filter(Boolean).join(" \u00B7 ");
 }
