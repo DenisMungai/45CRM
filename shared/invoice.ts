@@ -309,27 +309,32 @@ export function buildInvoiceView(input: {
 
 export type TemplateRow = { label: string; value: string };
 
-/** "Invoice number / Date of issue / Date due" block under the title. */
+/** The grey strip under the title: issue date, due date, project, and currency / status when they matter. */
 export function templateMetaRows(view: InvoiceView): TemplateRow[] {
   const isQuote = view.kind === "quote";
   const notable = ["PAID", "VOID", "ACCEPTED", "DECLINED", "EXPIRED"].includes(view.status);
   return [
-    { label: isQuote ? "Quotation number" : "Invoice number", value: view.number },
     { label: "Date of issue", value: view.issueDate },
     { label: isQuote ? "Valid until" : "Date due", value: view.dueDate },
+    ...(view.project.name.trim() ? [{ label: "Project", value: view.project.name.trim() }] : []),
     ...(view.currency !== "KES" ? [{ label: "Currency", value: view.currency }] : []),
     ...(notable ? [{ label: "Status", value: view.status.charAt(0) + view.status.slice(1).toLowerCase() }] : []),
   ];
 }
 
-/** The large line above the table: "KSh 0.00 due 30 Oct 2026". */
-export function templateHeadline(view: InvoiceView): { amount: string; text: string } {
-  return view.kind === "quote"
-    ? { amount: formatInvoiceMoney(view.totals.total, view.currency), text: `valid until ${view.dueDate}` }
-    : { amount: formatInvoiceMoney(view.totals.balance, view.currency), text: `due ${view.dueDate}` };
+/** The red / black band above the table: amount due (or quote total) beside the due date and project details. */
+export function templateBanner(view: InvoiceView): { amountLabel: string; amount: string; dateLabel: string; date: string; details: string } {
+  const isQuote = view.kind === "quote";
+  return {
+    amountLabel: isQuote ? "Quote total" : "Amount due",
+    amount: formatInvoiceMoney(isQuote ? view.totals.total : view.totals.balance, view.currency),
+    dateLabel: isQuote ? "Valid until" : "Due date",
+    date: view.dueDate,
+    details: templateProjectDetails(view).join(" · "),
+  };
 }
 
-/** Optional project details shown in small type under "Project:". */
+/** Optional project details shown in small type in the due-date band. */
 export function templateProjectDetails(view: InvoiceView): string[] {
   return [
     view.project.scope,
@@ -376,17 +381,24 @@ export function templatePaymentsReceived(view: InvoiceView): TemplateRow[] {
 export const MPESA_CODE_PATTERN = /^[A-Z0-9]{8,12}$/;
 export function normaliseMpesaCode(value: string): string { return value.replace(/\s+/g, "").toUpperCase(); }
 
-/** Contact lines for the business ("From") column. */
-export function templateBusinessLines(view: InvoiceView): string[] {
-  return [view.business.address, view.business.email, view.business.phone, view.business.website].filter((line) => Boolean(line && line.trim()));
+/** A "From" / "Bill to" column: a bold name, plain lines (address, contact person), then small contact lines. */
+export type TemplateParty = { name: string; lines: string[]; contacts: string[] };
+const present = (values: string[]) => values.map((value) => (value || "").trim()).filter(Boolean);
+
+export function templateFrom(view: InvoiceView): TemplateParty {
+  const b = view.business;
+  return { name: b.name || "45Creatives", lines: present([b.address]), contacts: present([b.email, b.phone, b.website]) };
 }
 
-/** Contact lines for the "Bill to" column. */
-export function templateClientLines(view: InvoiceView): string[] {
-  return [view.billTo.client, view.billTo.contact, view.billTo.address, view.billTo.email, view.billTo.phone].filter((line) => Boolean(line && line.trim()));
+/** The client name heads the column; a contact person with the same name is not repeated under it. */
+export function templateBillTo(view: InvoiceView): TemplateParty {
+  const c = view.billTo;
+  const [name = "", ...others] = present([c.client, c.contact]);
+  const lines = present([...others.filter((other) => other.toLowerCase() !== name.toLowerCase()), c.address]);
+  return { name, lines, contacts: present([c.email, c.phone]) };
 }
 
-/** "Thank you for choosing 45Creatives · 45creative.co.ke" */
-export function templateFooter(view: InvoiceView): string {
-  return [`Thank you for choosing ${view.business.name || "45Creatives"}`, view.business.website].filter(Boolean).join(" \u00B7 ");
+/** Footer: "Thank you for choosing 45Creatives" on the left, the website on the right. */
+export function templateFooter(view: InvoiceView): { thanks: string; website: string } {
+  return { thanks: `Thank you for choosing ${view.business.name || "45Creatives"}`, website: (view.business.website || "").trim() };
 }

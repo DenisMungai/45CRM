@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { invoiceDocuments, invoices, payments, workspaces } from "../drizzle/schema.js";
-import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, QUOTE_PAYMENT_TERMS, templateHeadline, templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateTotalRows, MPESA_CODE_PATTERN, normaliseMpesaCode, printableItems, type InvoiceFields } from "../shared/invoice.js";
+import { buildInvoiceView, computeInvoiceTotals, defaultInvoiceFields, deriveInvoiceStatus, formatInvoiceDate, formatInvoiceMoney, documentTerms, nextInvoiceNumberFrom, nextStoredInvoiceStatus, STANDARD_PAYMENT_TERMS, QUOTE_PAYMENT_TERMS, templateBanner, templateBillTo, templateMetaRows, templatePaymentRows, templatePaymentsReceived, templateTotalRows, MPESA_CODE_PATTERN, normaliseMpesaCode, printableItems, type InvoiceFields } from "../shared/invoice.js";
 import { renderInvoicePdf, pdfSafe } from "./invoicePdf.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -166,9 +166,13 @@ describe("template rows", () => {
     fields: { ...fields, pochiNumber: "0712 345 678", pochiName: "Jane W" },
     payments: [{ paidAt: "2026-10-17", method: "M-Pesa", number: "PAY-1", amount: 20000 }], now: new Date("2026-10-20"),
   });
-  it("labels the number and dates like the template", () => {
-    expect(templateMetaRows(view).map((row) => row.label)).toEqual(["Invoice number", "Date of issue", "Date due"]);
-    expect(templateHeadline(view)).toEqual({ amount: "KSh 20,000.00", text: "due 30 Oct 2026" });
+  it("labels the dates, project and amount-due band like the template", () => {
+    expect(templateMetaRows(view).map((row) => row.label)).toEqual(view.project.name.trim() ? ["Date of issue", "Date due", "Project"] : ["Date of issue", "Date due"]);
+    expect(templateBanner(view)).toMatchObject({ amountLabel: "Amount due", amount: "KSh 20,000.00", dateLabel: "Due date", date: "30 Oct 2026" });
+  });
+  it("does not repeat a contact person who has the client's name", () => {
+    const billTo = templateBillTo({ ...view, billTo: { client: "Jane W", contact: "jane w", email: "jane@acme.co.ke", phone: "", address: "Nairobi" } });
+    expect(billTo).toEqual({ name: "Jane W", lines: ["Nairobi"], contacts: ["jane@acme.co.ke"] });
   });
   it("shows subtotal, discount, total, deposit and amount due with minus signs", () => {
     expect(templateTotalRows(view)).toEqual([
