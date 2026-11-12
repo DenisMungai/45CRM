@@ -64,7 +64,7 @@ export default function ProjectWorkspace({ projectId, onClose, onOpenInvoice }: 
         <button className="icon-button" aria-label={`Delete task "${task.title}"`} onClick={() => deleteTask.mutate({ id: task.id })}><Trash2 /></button>
       </div>)}
       <form className="work-task-add" onSubmit={(e) => { e.preventDefault(); const title = (taskTitle[key] || "").trim(); if (!title) return; saveTask.mutate({ projectId, milestoneId, title, done: false, priority: "normal" }); setTaskTitle((c) => ({ ...c, [key]: "" })); }}>
-        <input value={taskTitle[key] || ""} onChange={(e) => setTaskTitle((c) => ({ ...c, [key]: e.target.value }))} placeholder="Add a task…" aria-label="New task" maxLength={220} />
+        <input value={taskTitle[key] || ""} onChange={(e) => setTaskTitle((c) => ({ ...c, [key]: e.target.value }))} placeholder="Add a task…" aria-label="New task" />
         <button className="text-button" disabled={!(taskTitle[key] || "").trim()}><Plus size={11} />Add</button>
       </form>
     </div>;
@@ -104,7 +104,7 @@ export default function ProjectWorkspace({ projectId, onClose, onOpenInvoice }: 
         </div> : null}
 
         {tab === "changes" ? <div className="work-panel">
-          <div className="work-panel-head"><p className="panel-subtle">Revisions count against the agreement's included rounds; extra rounds are priced at its extra-revision rate automatically. Clients can raise requests from their portal.</p><div className="record-actions"><button className="record-edit" disabled={!billableChanges.length || invoiceChanges.isPending || !data.client} onClick={() => invoiceChanges.mutate({ projectId })}><ReceiptText />Invoice {billableChanges.length || ""} approved</button><button className="record-edit" onClick={() => setChangeForm({ title: "", description: "", kind: "revision", status: "requested", estimateHours: "", amount: "" })}><Plus />Add request</button></div></div>
+          <div className="work-panel-head"><p className="panel-subtle">Revisions count against the agreement's included rounds; extra rounds are priced at its extra-revision rate automatically. Clients can raise requests from their portal.</p><div className="record-actions"><button className="record-edit" disabled={!billableChanges.length || invoiceChanges.isPending || !data.client} onClick={() => invoiceChanges.mutate({ projectId })}><ReceiptText />{billableChanges.length ? `Invoice ${billableChanges.length} approved` : "Invoice approved"}</button><button className="record-edit" onClick={() => setChangeForm({ title: "", description: "", kind: "revision", status: "requested", estimateHours: "", amount: "" })}><Plus />Add request</button></div></div>
           {data.changeRequests.length === 0 ? <p className="activity-empty">No change requests yet.</p> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Request</th><th>Type</th><th>Status</th><th>Estimate</th><th>Price</th><th></th></tr></thead><tbody>{data.changeRequests.map((c) => <tr key={c.id}>
             <td className="strong-cell">{c.title}<small className="cell-sub">{c.source === "client" ? `From ${c.requestedByName || "the client"} via portal` : "Internal"} · {day(c.createdAt)}</small></td>
             <td>{c.kind === "revision" ? <>Revision {c.revisionNumber ?? ""}{c.overLimit ? <small className="cell-sub danger">Beyond included rounds</small> : c.revisionNumber ? <small className="cell-sub">Included</small> : null}</> : "Scope change"}</td>
@@ -117,7 +117,7 @@ export default function ProjectWorkspace({ projectId, onClose, onOpenInvoice }: 
 
         {tab === "time" ? <div className="work-panel">
           <form className="work-time-form" onSubmit={(e) => { e.preventDefault(); logTime.mutate({ projectId, description: time.description.trim(), minutes: minutesEntered, workDate: toDate(time.date) || new Date(), billable: time.billable, hourlyRate: Math.max(0, Math.round(Number(time.rate) || 0)), changeRequestId: time.changeRequestId || null }); }}>
-            <label className="wide">What did you work on?<input value={time.description} onChange={(e) => setTime({ ...time, description: e.target.value })} placeholder="Homepage layout, contact form fixes…" maxLength={300} /></label>
+            <label className="wide">What did you work on?<input value={time.description} onChange={(e) => setTime({ ...time, description: e.target.value })} placeholder="Homepage layout, contact form fixes…" /></label>
             <label>Hours<input type="number" min="0" max="24" value={time.hours} onChange={(e) => setTime({ ...time, hours: e.target.value })} /></label>
             <label>Minutes<input type="number" min="0" max="59" value={time.minutes} onChange={(e) => setTime({ ...time, minutes: e.target.value })} /></label>
             <label>Date<input type="date" value={time.date} onChange={(e) => setTime({ ...time, date: e.target.value })} /></label>
@@ -137,7 +137,7 @@ export default function ProjectWorkspace({ projectId, onClose, onOpenInvoice }: 
       {milestoneForm ? <div className="work-subdialog" role="dialog" aria-label="Milestone">
         <h3>{milestoneForm.id ? "Edit milestone" : "New milestone"}</h3>
         <div className="record-fields">
-          <label className="wide">Title<input value={milestoneForm.title} onChange={(e) => setMilestoneForm({ ...milestoneForm, title: e.target.value })} placeholder="Design mockups" maxLength={200} /></label>
+          <label className="wide">Title<input value={milestoneForm.title} onChange={(e) => setMilestoneForm({ ...milestoneForm, title: e.target.value })} placeholder="Design mockups" /></label>
           <label className="wide">What's delivered<textarea rows={2} value={milestoneForm.description} onChange={(e) => setMilestoneForm({ ...milestoneForm, description: e.target.value })} placeholder="Shown to the client when you ask for approval" /></label>
           <label>Due date<input type="date" value={milestoneForm.dueDate} onChange={(e) => setMilestoneForm({ ...milestoneForm, dueDate: e.target.value })} /></label>
           <label>Amount to bill (KSh)<input type="number" min="0" value={milestoneForm.amount} onChange={(e) => setMilestoneForm({ ...milestoneForm, amount: e.target.value })} placeholder="0 if not billed separately" /></label>
@@ -148,7 +148,7 @@ export default function ProjectWorkspace({ projectId, onClose, onOpenInvoice }: 
       {changeForm ? <div className="work-subdialog" role="dialog" aria-label="Change request">
         <h3>{changeForm.id ? "Edit change request" : "New change request"}</h3>
         <div className="record-fields">
-          <label className="wide">Request<input value={changeForm.title} onChange={(e) => setChangeForm({ ...changeForm, title: e.target.value })} placeholder="Add a blog section" maxLength={200} /></label>
+          <label className="wide">Request<input value={changeForm.title} onChange={(e) => setChangeForm({ ...changeForm, title: e.target.value })} placeholder="Add a blog section" /></label>
           <label className="wide">Details<textarea rows={2} value={changeForm.description} onChange={(e) => setChangeForm({ ...changeForm, description: e.target.value })} /></label>
           <label>Type<select value={changeForm.kind} onChange={(e) => setChangeForm({ ...changeForm, kind: e.target.value as ChangeForm["kind"] })}><option value="revision">Revision round</option><option value="change">Scope change</option></select></label>
           <label>Status<select value={changeForm.status} onChange={(e) => setChangeForm({ ...changeForm, status: e.target.value as ChangeStatus })}>{(Object.keys(changeLabels) as ChangeStatus[]).map((s) => <option key={s} value={s}>{changeLabels[s]}</option>)}</select></label>

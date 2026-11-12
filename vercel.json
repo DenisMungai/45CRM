@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "installCommand": "npm install --include=dev",
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
   "rewrites": [
@@ -8,11 +9,7 @@
       "destination": "/api"
     },
     {
-      "source": "/uploads/:path*",
-      "destination": "/api"
-    },
-    {
-      "source": "/((?!api|uploads).*)",
+      "source": "/((?!api).*)",
       "destination": "/index.html"
     }
   ],

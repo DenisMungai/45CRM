@@ -33,7 +33,7 @@ function MpesaCodeBox({ invoiceId, totalKes, paidKes, balanceKes }: { invoiceId:
   return <form className="reminder-box mpesa-code-box" onSubmit={(e) => { e.preventDefault(); if (!problem && normalised) record.mutate({ invoiceId, code: normalised, amount: Math.round(Number(amount)), paidAt: new Date(`${paidOn}T12:00:00`) }); }}>
     <div><strong><Smartphone size={12} /> M-Pesa payment</strong><span>{problem || "Enter the code from the client's M-Pesa confirmation SMS. It's recorded against this invoice and shown under Payments received."}</span></div>
     <div className="mpesa-code-fields">
-      <label>M-Pesa code<input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="SJK3H2L9QX" maxLength={14} autoCapitalize="characters" spellCheck={false} /></label>
+      <label>M-Pesa code<input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="SJK3H2L9QX" autoCapitalize="characters" spellCheck={false} /></label>
       <label>Amount (KSh)<input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
       <label>Date paid<input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} /></label>
       <button className="primary" type="submit" disabled={record.isPending || !normalised || Boolean(problem)}>{record.isPending ? "Saving…" : "Save payment"}</button>

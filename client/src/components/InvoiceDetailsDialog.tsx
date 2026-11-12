@@ -75,7 +75,7 @@ export default function InvoiceDetailsDialog({ open, number, initial, saving, on
             <label>Discount ({form.currency === "KES" ? "KSh" : form.currency})<input type="number" min="0" value={form.discount} onChange={(e) => set("discount", e.target.value)} /></label>
             <strong>Total {formatInvoiceMoney(totals.total, form.currency)}</strong>
           </div>
-          <p className="panel-subtle">Lines without a unit price are left off the invoice.</p>
+          <p className="panel-subtle">Lines without a unit price are left off the {isQuote ? "quotation" : "invoice"}.</p>
         </fieldset>
         {takesDeposit ? <fieldset><legend>Deposit paid</legend><div className="record-fields">
           <label>Deposit paid (KSh)<input type="number" min="0" value={deposit.amount} onChange={(e) => setDeposit({ ...deposit, amount: e.target.value })} placeholder="0" /></label>

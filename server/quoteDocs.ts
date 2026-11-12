@@ -128,7 +128,7 @@ export async function loadQuoteBundleByToken(token: string): Promise<QuoteBundle
 /** Records the client's answer once. Returns why it can't be recorded, if so. */
 export async function decideQuote(bundle: QuoteBundle, decision: "accepted" | "declined", name: string, note: string | null) {
   if (!bundle.document) return "NOT_SENT" as const;
-  if (bundle.document.decision) return "ALREADY_DECIDED" as const;
+  if (bundle.document.decision || bundle.view.status === "ACCEPTED" || bundle.view.status === "DECLINED") return "ALREADY_DECIDED" as const;
   if (decision === "accepted" && bundle.view.status === "EXPIRED") return "EXPIRED" as const;
   await getDb().update(quoteDocuments).set({ decision, decidedByName: name, decisionNote: note, decidedAt: new Date(), updatedAt: new Date() }).where(eq(quoteDocuments.id, bundle.document.id));
   await getDb().update(quotes).set({ status: decision, updatedAt: new Date() }).where(eq(quotes.id, bundle.quote.id));

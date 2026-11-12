@@ -87,11 +87,11 @@ app.post("/api/leads/capture/:workspaceId", async (req, res) => {
     if (!secret) return res.status(401).json({ error: "Missing X-Webhook-Secret header." });
     const workspace = await db.findWorkspaceByWebhookSecret(String(secret));
     if (!workspace || workspace.id !== workspaceId) return res.status(401).json({ error: "Invalid webhook secret." });
-    const name = String(req.body?.name || "").trim().slice(0, 180);
-    const email = String(req.body?.email || "").trim().slice(0, 320);
-    const phone = String(req.body?.phone || "").trim().slice(0, 40);
-    const message = String(req.body?.message || "").trim().slice(0, 2000);
-    const source = String(req.body?.source || "Website contact form").trim().slice(0, 80) || "Website contact form";
+    const name = String(req.body?.name || "").trim();
+    const email = String(req.body?.email || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const message = String(req.body?.message || "").trim();
+    const source = String(req.body?.source || "Website contact form").trim() || "Website contact form";
     if (!name && !email && !phone) return res.status(400).json({ error: "At least a name, email, or phone number is required." });
     const lead = await crm.upsertLead(workspaceId, {
       name: name || email || phone || "Website visitor",

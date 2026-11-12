@@ -6,7 +6,6 @@
 import "dotenv/config";
 import express from "express";
 import cookieParser from "cookie-parser";
-import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../server/routers.js";
 import { createContext } from "../server/_core/trpc.js";
@@ -49,15 +48,6 @@ app.use(express.json({
   },
 }));
 app.use(cookieParser());
-
-// Serve uploaded files (avatars, etc.) — /tmp on Vercel, so warn if missing
-const uploadsPath = path.resolve(process.cwd(), "uploads");
-if (fs.existsSync(uploadsPath)) {
-  app.use(
-    "/uploads",
-    express.static(uploadsPath, { maxAge: "7d", immutable: true })
-  );
-}
 
 // ── Health ───────────────────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) =>
@@ -162,15 +152,14 @@ app.post("/api/leads/capture/:workspaceId", async (req, res) => {
     const workspace = await findWorkspaceByWebhookSecret(String(secret));
     if (!workspace || workspace.id !== workspaceId)
       return res.status(401).json({ error: "Invalid webhook secret." });
-    const name = String(req.body?.name || "").trim().slice(0, 180);
-    const email = String(req.body?.email || "").trim().slice(0, 320);
-    const phone = String(req.body?.phone || "").trim().slice(0, 40);
-    const message = String(req.body?.message || "").trim().slice(0, 2000);
+    const name = String(req.body?.name || "").trim();
+    const email = String(req.body?.email || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const message = String(req.body?.message || "").trim();
     const source = String(
       req.body?.source || "Website contact form"
     )
-      .trim()
-      .slice(0, 80) || "Website contact form";
+      .trim() || "Website contact form";
     if (!name && !email && !phone)
       return res.status(400).json({
         error: "At least a name, email, or phone number is required.",

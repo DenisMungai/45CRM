@@ -26,7 +26,9 @@ export default function QuoteView() {
   if (query.isLoading) return shell(<div className="sign-state"><div className="sign-spinner" /><p>Loading your quotation…</p></div>);
   if (query.isError || !query.data) return shell(<div className="sign-state"><TriangleAlert size={28} /><h1>Link unavailable</h1><p>{query.error?.message || "This quotation can't be shown."}</p></div>);
   const view = query.data.view;
-  const open = view.status === "SENT";
+  // Anyone holding the link was given it (sent from the app or copied and pasted), so an
+  // undecided, unexpired quote can be answered whether or not it was marked as sent.
+  const open = view.status === "SENT" || view.status === "DRAFT";
   return shell(<>
     <div className="inv-public-actions">
       {open ? <><button className="primary" onClick={() => setMode("accepted")}><Check />Accept quotation</button><button onClick={() => setMode("declined")}><X />Decline</button></> : null}
@@ -38,8 +40,8 @@ export default function QuoteView() {
     {mode ? <form className="quote-decision panel" onSubmit={(event) => { event.preventDefault(); decide.mutate({ token, decision: mode, name: name.trim(), note: note.trim() || undefined }); }}>
       <h2>{mode === "accepted" ? "Accept this quotation" : "Decline this quotation"}</h2>
       <p>{mode === "accepted" ? `By accepting, you agree to the scope and prices in ${view.number}. We'll be in touch about the deposit and next steps.` : "Let us know why, so we can help - for example a change in scope or budget."}</p>
-      <label>Your full name<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} maxLength={160} autoComplete="name" /></label>
-      <label>{mode === "accepted" ? "Note (optional)" : "Reason (optional)"}<textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} /></label>
+      <label>Your full name<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} autoComplete="name" /></label>
+      <label>{mode === "accepted" ? "Note (optional)" : "Reason (optional)"}<textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
       <div className="contract-actions-row"><button type="button" onClick={() => setMode(null)}>Cancel</button><button className="primary" disabled={decide.isPending || name.trim().length < 2}>{decide.isPending ? "Saving…" : mode === "accepted" ? "Confirm acceptance" : "Confirm"}</button></div>
     </form> : null}
     <InvoiceSheet view={view} />

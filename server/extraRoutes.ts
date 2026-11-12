@@ -91,7 +91,7 @@ export function registerExtraRoutes(app: Express) {
     if (!name) return res.status(400).json({ error: "The file needs a name." });
     if (!content.length) return res.status(400).json({ error: "The file is empty." });
     const visibility = req.query.visibility === "client" ? "client" : "internal";
-    const saved = await addFile(user.workspaceId, { clientId, name, mimeType, content, visibility, notes: String(req.query.notes || "").slice(0, 2000) || null, source: "team", userId: user.id });
+    const saved = await addFile(user.workspaceId, { clientId, name, mimeType, content, visibility, notes: String(req.query.notes || "") || null, source: "team", userId: user.id });
     await db.appendDashboardActivity(user.workspaceId, [{ recordId: clientId, tableName: "clients", action: "File uploaded", detail: `${name} added to ${client.name}'s vault${visibility === "client" ? " and shared in the client portal" : ""}.`, actorUserId: user.id }]);
     res.json({ id: saved.id });
   });

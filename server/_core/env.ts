@@ -1,13 +1,29 @@
 import "dotenv/config";
 
+export const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
+export const GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b";
+
+/**
+ * 4S Insight talks to an OpenAI-compatible chat API: Groq's free tier by default, so a deployment
+ * only needs GROQ_API_KEY. AI_BASE_URL / AI_API_KEY / AI_MODEL switch to another provider.
+ */
+export function resolveAiConfig(env: Record<string, string | undefined>) {
+  const aiBaseUrl = (env.AI_BASE_URL?.trim() || GROQ_BASE_URL).replace(/\/+$/, "");
+  const groq = aiBaseUrl.includes("api.groq.com");
+  return {
+    aiBaseUrl,
+    aiApiKey: env.AI_API_KEY?.trim() || (groq ? env.GROQ_API_KEY?.trim() : "") || "",
+    aiModel: env.AI_MODEL?.trim() || (groq ? GROQ_DEFAULT_MODEL : ""),
+  };
+}
+
 export const ENV = {
   port: Number(process.env.PORT || 3000),
   nodeEnv: process.env.NODE_ENV || "development",
   sessionSecret: process.env.SESSION_SECRET || "change-me-in-production",
   sessionDays: Number(process.env.SESSION_DAYS || 30),
   appUrl: process.env.APP_URL || `http://localhost:${process.env.PORT || 3000}`,
-  openAiApiKey: process.env.OPENAI_API_KEY || "",
-  openAiModel: process.env.OPENAI_MODEL || "gpt-5-mini",
+  ...resolveAiConfig(process.env),
   resendApiKey: process.env.RESEND_API_KEY || "",
   resendFromEmail: process.env.RESEND_FROM_EMAIL || "",
   whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN || "",

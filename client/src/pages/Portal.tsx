@@ -48,7 +48,7 @@ export default function Portal() {
   const data = query.data;
   const owed = data.invoices.filter((i) => i.balance > 0);
   const awaiting = data.projects.flatMap((p) => p.milestones.filter((m) => m.status === "awaiting-approval"));
-  const nameField = <label>Your name<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} maxLength={160} autoComplete="name" /></label>;
+  const nameField = <label>Your name<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} autoComplete="name" /></label>;
   return shell(<div className="portal">
     <header className="portal-head"><div><span className="eyebrow">Client portal</span><h1>{data.client.name}</h1><p>Everything for your projects with {data.business.name || "us"} in one place.{data.business.email || data.business.phone ? ` Questions? ${[data.business.email, data.business.phone].filter(Boolean).join(" · ")}` : ""}</p></div></header>
     <section className="portal-stats">
@@ -65,15 +65,15 @@ export default function Portal() {
         {m.decidedByName ? <p className="panel-subtle">{m.status === "approved" ? "Approved" : "Changes requested"} by {m.decidedByName} on {day(m.decidedAt)}{m.clientNote ? `: “${m.clientNote}”` : ""}</p> : null}
         {m.status === "awaiting-approval" ? deciding?.id === m.id ? <form className="portal-form" onSubmit={(e) => { e.preventDefault(); decide.mutate({ token, milestoneId: m.id, decision: deciding.decision, name: name.trim(), note: note.trim() || undefined }); }}>
           {nameField}
-          <label>{deciding.decision === "approved" ? "Comment (optional)" : "What should change?"}<textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} required={deciding.decision === "changes-requested"} maxLength={2000} /></label>
+          <label>{deciding.decision === "approved" ? "Comment (optional)" : "What should change?"}<textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} required={deciding.decision === "changes-requested"} /></label>
           <div className="contract-actions-row"><button type="button" onClick={reset}>Cancel</button><button className="primary" disabled={decide.isPending || name.trim().length < 2 || (deciding.decision === "changes-requested" && !note.trim())}>{decide.isPending ? "Sending…" : deciding.decision === "approved" ? "Confirm approval" : "Send feedback"}</button></div>
         </form> : <div className="contract-actions-row"><button className="primary" onClick={() => { reset(); setDeciding({ id: m.id, decision: "approved" }); }}><Check />Approve</button><button onClick={() => { reset(); setDeciding({ id: m.id, decision: "changes-requested" }); }}>Request changes</button></div> : null}
       </li>)}</ol> : <p className="panel-subtle">Milestones will appear here as the project is planned.</p>}
       {p.changeRequests.length ? <div className="portal-changes"><h3>Change requests</h3>{p.changeRequests.map((c) => <div key={c.id}><span>{c.title}</span><span className={`status ${tone(c.status)}`}>{c.status}</span></div>)}</div> : null}
       {requesting === p.id ? <form className="portal-form" onSubmit={(e) => { e.preventDefault(); request.mutate({ token, projectId: p.id, title: title.trim(), description: note.trim() || undefined, name: name.trim() }); }}>
         {nameField}
-        <label>What would you like?<input value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={200} placeholder="e.g. Add a gallery page" /></label>
-        <label>Details (optional)<textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} maxLength={4000} /></label>
+        <label>What would you like?<input value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} placeholder="e.g. Add a gallery page" /></label>
+        <label>Details (optional)<textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
         <div className="contract-actions-row"><button type="button" onClick={reset}>Cancel</button><button className="primary" disabled={request.isPending || name.trim().length < 2 || title.trim().length < 3}>{request.isPending ? "Sending…" : "Send request"}</button></div>
       </form> : <button className="text-button portal-request" onClick={() => { reset(); setRequesting(p.id); }}><MessageSquarePlus size={12} />Request a change</button>}
     </article>)}</section> : null}

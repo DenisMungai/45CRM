@@ -360,6 +360,7 @@ button { border: 0; }
 .record-dialog { width: min(600px, 100%); max-height: min(720px, calc(100dvh - 40px)); padding: 20px; overflow: auto; border-color: rgba(255,255,255,.19); background: linear-gradient(145deg, rgba(47,52,60,.89), rgba(13,16,20,.94)); box-shadow: 0 28px 90px rgba(0,0,0,.52), inset 0 1px rgba(255,255,255,.17); animation: dialog-rise 210ms cubic-bezier(.23,1,.32,1); }
 .record-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,.09); }
 .record-dialog-head h2 { margin: 5px 0 0; color: #f0f2ef; font-family: "DM Sans", sans-serif; font-size: 18px; letter-spacing: -.045em; text-transform: capitalize; }
+.activity-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .record-close { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 30px; border: 1px solid rgba(255,255,255,.12); border-radius: 9px; color: #c2c8ca; background: rgba(255,255,255,.045); }
 .record-close:hover { color: #fff; background: rgba(255,255,255,.09); }
 .record-close svg { width: 15px; height: 15px; }
@@ -390,8 +391,11 @@ button { border: 0; }
 .dashboard-timeline { margin-top: 13px; overflow: visible; }
 .dashboard-timeline .panel-head > div { min-width: 0; }
 .dashboard-timeline .panel-head > svg { width: 16px; color: #d57476; }
-.timeline-controls { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.065); background: rgba(255,255,255,.018); }
-.timeline-controls .searchbox { width: min(300px, 46vw); height: 29px; }
+.timeline-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.065); background: rgba(255,255,255,.018); }
+.timeline-controls .searchbox { flex: 1 1 220px; width: auto; max-width: 340px; min-width: 0; height: 29px; }
+.timeline-controls .date-filter { flex: 0 1 auto; }
+.timeline-controls .date-filter input { min-width: 0; width: 132px; }
+.timeline-controls .record-history { margin-left: auto; white-space: nowrap; }
 .timeline-controls select { height: 29px; padding: 0 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; outline: 0; color: #e6e9e6; background: rgba(5,7,9,.43); font-size: 8px; }
 .timeline-controls select option { color: #16181b; }
 .timeline-feed { padding: 12px 15px 16px; display: grid; gap: 0; }
@@ -413,7 +417,10 @@ button { border: 0; }
 .role-member-list { display: grid; }
 .role-member { min-height: 46px; display: grid; grid-template-columns: 25px minmax(150px, 1fr) minmax(140px, .8fr) 115px; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid rgba(255,255,255,.055); color: #e2e4e1; font-size: 9px; }
 .role-member small { color: #92999d; font-size: 8px; }
-.invite-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(200px, 1fr) 110px auto; align-items: end; gap: 9px; padding: 14px; border-top: 1px solid rgba(255,255,255,.075); background: linear-gradient(90deg, rgba(109,43,45,.13), rgba(255,255,255,.018)); }
+.invite-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, 150px) auto; align-items: center; gap: 9px; padding: 14px; border-top: 1px solid rgba(255,255,255,.075); background: linear-gradient(90deg, rgba(109,43,45,.13), rgba(255,255,255,.018)); }
+.invite-form > div { grid-column: 1 / -1; }
+.invite-form select { width: 100%; height: 29px; }
+.invite-form button { justify-content: center; white-space: nowrap; }
 .invite-form h3, .invitation-history h3 { margin: 0; color: #e7eae6; font-size: 11px; }
 .invite-form p { margin: 3px 0 0; color: #979fa2; font-size: 8px; line-height: 1.4; }
 .invite-form input { width: 100%; height: 29px; padding: 0 9px; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; outline: 0; color: #eef0ed; background: rgba(5,7,9,.43); font-size: 9px; }
@@ -425,7 +432,7 @@ button { border: 0; }
 .account-panel h2 { margin: 0; color: #edf0ed; font-size: 13px; }
 .account-panel p { margin: 5px 0 0; color: #999fa3; font-size: 9px; }
 .account-actions { display: flex; align-items: center; gap: 8px; }
-@media (max-width: 760px) { .role-toolbar { flex-wrap: wrap; } .role-toolbar label { width: 100%; } .role-member { grid-template-columns: 22px minmax(0, 1fr) 92px; padding: 9px 12px; } .role-member small { display: none; } .invite-form { grid-template-columns: 1fr 1fr; } .invite-form > div { grid-column: 1 / -1; } .invite-form button { justify-content: center; } }
+@media (max-width: 760px) { .role-toolbar { flex-wrap: wrap; } .role-toolbar label { width: 100%; } .role-member { grid-template-columns: 22px minmax(0, 1fr) 92px; padding: 9px 12px; } .role-member small { display: none; } .invite-form { grid-template-columns: minmax(0, 1fr) auto; } .invite-form input { grid-column: 1 / -1; } }
 
 .assistant-grid { display: grid; grid-template-columns: minmax(0,1.55fr) minmax(250px,.7fr); gap: 13px; }
 .assistant-main { min-height: 458px; padding: 27px; }
@@ -475,6 +482,10 @@ button { border: 0; }
 .settings-tabs button.active { color: #f4f4f1; border-color: rgba(231,105,107,.19); background: linear-gradient(100deg, rgba(190,65,68,.32), rgba(255,255,255,.03)); box-shadow: inset 0 1px rgba(255,255,255,.08); }
 .settings-tabs button:not(.active):hover { background: rgba(255,255,255,.055); color: #eceeeb; }
 .settings-content { display: grid; gap: 13px; }
+/* Settings renders role management and account access as their own blocks after the tabbed area. */
+.workspace > .page-content + .page-content { margin-top: 13px; }
+/* Below 1120px the tab column squeezed the forms (emails were cut off): put the tabs on top. */
+@media (max-width: 1120px) { .settings-layout { grid-template-columns: 1fr; } .settings-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; } .settings-tabs button { justify-content: center; } }
 .settings-card { padding: 17px; }
 .settings-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
 .settings-card-head h2 { margin: 0; color: #eef0ed; font-family: "DM Sans", sans-serif; font-size: 13px; letter-spacing: -.025em; }
@@ -546,8 +557,8 @@ button { border: 0; }
 @keyframes skeleton-shimmer { 0% { background-position: 180% 0; } 100% { background-position: -40% 0; } }
 @media (max-width: 800px) { .dashboard-profile-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-.dashboard-profile-row { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .85fr); gap: 14px; align-items: stretch; }
-.dashboard-profile-row .dashboard-profile-card { min-width: 0; }
+.dashboard-profile-row { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .85fr); gap: 13px; align-items: stretch; margin-bottom: 13px; }
+.dashboard-profile-row .dashboard-profile-card { min-width: 0; margin-bottom: 0; }
 .dashboard-quick-stats { display: flex; flex-direction: column; justify-content: space-between; min-height: 148px; }
 .dashboard-quick-stats .panel-head { margin-bottom: 12px; }
 .quick-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }

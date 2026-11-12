@@ -84,10 +84,10 @@ export default function ClientVault({ clientId, clientName, email, phone }: { cl
         </div>
         {form ? <div className="vault-form">
           <div className="record-fields">
-            <label>{form.kind === "credential" ? "Login for" : "Name"}<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={form.kind === "credential" ? "WordPress admin, cPanel, Google Analytics…" : "Brand guidelines, Figma file…"} maxLength={200} /></label>
+            <label>{form.kind === "credential" ? "Login for" : "Name"}<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={form.kind === "credential" ? "WordPress admin, cPanel, Google Analytics…" : "Brand guidelines, Figma file…"} /></label>
             <label>URL<input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://" /></label>
             {form.kind === "credential" ? <><label>Username / email<input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="off" /></label><label>Password<input type="password" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} autoComplete="new-password" /></label></> : <label className="checkbox-field"><input type="checkbox" checked={form.visibility === "client"} onChange={(e) => setForm({ ...form, visibility: e.target.checked ? "client" : "internal" })} />Show in client portal</label>}
-            <label className="wide">Notes<input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} maxLength={2000} /></label>
+            <label className="wide">Notes<input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label>
           </div>
           {form.kind === "credential" ? <p className="panel-subtle">Passwords are encrypted, never shown in the client portal, and every time someone reveals one it's recorded in the activity log.</p> : null}
           <div className="record-dialog-actions"><button className="record-reset" onClick={() => setForm(null)}>Cancel</button><button className="record-save" disabled={!form.name.trim() || add.isPending} onClick={() => add.mutate({ clientId, kind: form.kind, name: form.name, url: form.url || null, username: form.username || null, secret: form.secret || null, notes: form.notes || null, visibility: form.visibility })}>Save</button></div>

@@ -55,7 +55,7 @@ server/routers.ts     The tRPC appRouter (all app procedures)
 server/_core/         trpc context + procedures, cookies, env (ENV), llm adapter, vite helpers
 server/*.ts           Domain modules: crm, domain (row sync), invoiceDocs, quoteDocs, contracts,
                       projectWork, renewals, reminders, mpesa, portal, vault, shareLinks,
-                      whatsapp*, documenso, emailDelivery, storage, googleAnalytics
+                      whatsapp*, documenso, emailDelivery, googleAnalytics
 server/*Pdf.ts        PDF renderers (invoicePdf, contractPdf)
 shared/               Pure logic used by client AND server (invoice, contract, mpesa, renewal, reminders)
 client/src/pages/     Home.tsx (the dashboard), Login, public pages: InvoiceView, QuoteView,
@@ -132,7 +132,8 @@ Canonical list: `.env.example`. Keep it in sync when adding variables, and never
 | `SESSION_SECRET`, `SESSION_DAYS` | Session hashing, share-link HMAC, vault encryption key |
 | `APP_URL` | Public HTTPS origin used in emailed/WhatsApp links |
 | `BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | Seed admin (`npm run db:seed`) |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | Optional AI insight |
+| `GROQ_API_KEY` | AI insight (Groq free tier, `openai/gpt-oss-120b`) |
+| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | Optional: another OpenAI-compatible AI provider |
 | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Optional email (invitations, documents, reminders) |
 | `CRON_SECRET` | Protects `/api/cron/reminders` |
 | `WHATSAPP_*` | Optional WhatsApp Business Cloud API and webhook |

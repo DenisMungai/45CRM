@@ -41,7 +41,7 @@ export async function getAsset(workspaceId: string, id: string) {
 }
 
 export async function addFile(workspaceId: string, input: { clientId: string; projectId?: string | null; name: string; mimeType: string; content: Buffer; visibility: "internal" | "client"; notes?: string | null; source: "team" | "client"; userId: string | null }) {
-  return getDb().insert(clientAssets).values({ workspaceId, clientId: input.clientId, projectId: input.projectId ?? null, kind: "file", name: input.name.slice(0, 200), mimeType: input.mimeType.slice(0, 120), sizeBytes: input.content.length, content: input.content, visibility: input.visibility, notes: input.notes ?? null, source: input.source, uploadedByUserId: input.userId }).returning({ id: clientAssets.id, name: clientAssets.name }).then((r) => r[0]);
+  return getDb().insert(clientAssets).values({ workspaceId, clientId: input.clientId, projectId: input.projectId ?? null, kind: "file", name: input.name, mimeType: input.mimeType.slice(0, 120), sizeBytes: input.content.length, content: input.content, visibility: input.visibility, notes: input.notes ?? null, source: input.source, uploadedByUserId: input.userId }).returning({ id: clientAssets.id, name: clientAssets.name }).then((r) => r[0]);
 }
 
 export async function addLinkOrCredential(workspaceId: string, userId: string, input: { clientId: string; kind: "link" | "credential"; name: string; url?: string | null; username?: string | null; secret?: string | null; notes?: string | null; visibility: "internal" | "client" }) {

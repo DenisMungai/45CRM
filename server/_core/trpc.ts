@@ -42,12 +42,19 @@ export async function createContext({ req, res }: { req: Request; res: Response 
 
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
+  // tRPC attaches server stack traces to every error unless NODE_ENV is "production", which the
+  // Vercel function runtime doesn't set - so production responses were exposing file paths and
+  // call stacks. Only include them when explicitly running in development.
+  isDev: process.env.NODE_ENV === "development" && !process.env.VERCEL,
   // Any error that isn't a deliberate TRPCError thrown by app code (validation, NOT_FOUND, etc.)
   // is an unexpected failure - most often a raw database driver error, which by default carries
   // the full SQL statement, bound parameters (including other users' UUIDs), and internal schema
   // details in its `message`. tRPC sends that message to the client verbatim unless we replace it,
   // so we log the real error server-side and swap in a generic message for anything unexpected.
-  errorFormatter({ shape, error }) {
+  errorFormatter({ shape: rawShape, error }) {
+    const { stack: _stack, ...data } = rawShape.data;
+    // Never on Vercel, even if NODE_ENV was set to "development" there by copying .env.example.
+    const shape = process.env.NODE_ENV === "development" && !process.env.VERCEL ? rawShape : { ...rawShape, data };
     if (error.code === "INTERNAL_SERVER_ERROR" && !(error.cause instanceof TRPCError)) {
       console.error("Unhandled server error:", error.cause || error);
       return { ...shape, message: "Something went wrong on our end. Please try again." };

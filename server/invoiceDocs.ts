@@ -190,7 +190,7 @@ export async function createBalanceInvoice(workspaceId: string, userId: string, 
     clientEmail: input.clientEmail,
     clientPhone: input.clientPhone,
     milestone: description,
-    items: [{ description: `${description} owed by ${input.clientName}`.slice(0, 300), quantity: 1, unitPrice: input.amount }],
+    items: [{ description: `${description} owed by ${input.clientName}`, quantity: 1, unitPrice: input.amount }],
   };
   return createInvoiceWithDocument(workspaceId, userId, { fields, issueDate: now, dueDate: new Date(now.getTime() + 14 * 86_400_000), status: "sent" });
 }

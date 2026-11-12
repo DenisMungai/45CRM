@@ -73,6 +73,14 @@ describe("multi-currency documents", () => {
     expect(deriveQuoteStatus({ decision: null, sent: true, validUntil: "2026-10-01", now })).toBe("EXPIRED");
     expect(deriveQuoteStatus({ decision: "declined", sent: true, validUntil: "2026-10-01", now })).toBe("DECLINED");
   });
+  it("keeps a quote marked accepted or declined from the table decided after it lapses", () => {
+    const now = new Date("2026-11-12T08:00:00Z");
+    expect(deriveQuoteStatus({ decision: null, sent: false, validUntil: "2026-11-02", storedStatus: "accepted", now })).toBe("ACCEPTED");
+    expect(deriveQuoteStatus({ decision: null, sent: true, validUntil: "2026-11-02", storedStatus: "Declined", now })).toBe("DECLINED");
+    expect(deriveQuoteStatus({ decision: null, sent: true, validUntil: "2026-11-02", storedStatus: "sent", now })).toBe("EXPIRED");
+    // The client's own recorded answer wins over the table status.
+    expect(deriveQuoteStatus({ decision: "declined", sent: true, validUntil: "2026-11-30", storedStatus: "accepted", now })).toBe("DECLINED");
+  });
 });
 
 describe("revision rounds", () => {

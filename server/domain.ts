@@ -186,9 +186,10 @@ export function invoiceTone(status: InvoiceSummary["status"]) {
  */
 export async function listDomainRows(workspaceId: string) {
   const db = getDb();
-  const [c,l,p,q,pa,inv,t,members,invoiceSummaries] = await Promise.all([
+  const [c,l,p,q,quoteDocs,pa,inv,t,members,invoiceSummaries] = await Promise.all([
     db.select().from(clients).where(eq(clients.workspaceId, workspaceId)), db.select().from(leads).where(eq(leads.workspaceId, workspaceId)),
     db.select().from(projects).where(eq(projects.workspaceId, workspaceId)), db.select().from(quotes).where(eq(quotes.workspaceId, workspaceId)),
+    db.select({ quoteId: quoteDocuments.quoteId, fields: quoteDocuments.fields }).from(quoteDocuments).where(eq(quoteDocuments.workspaceId, workspaceId)),
     db.select().from(payments).where(eq(payments.workspaceId, workspaceId)),
     db.select().from(inventoryItems).where(eq(inventoryItems.workspaceId, workspaceId)), db.select().from(transactions).where(eq(transactions.workspaceId, workspaceId)),
     db.select({ id: users.id, name: users.name }).from(workspaceMembers).innerJoin(users, eq(users.id, workspaceMembers.userId)).where(eq(workspaceMembers.workspaceId, workspaceId)),
@@ -202,11 +203,13 @@ export async function listDomainRows(workspaceId: string) {
   const outstandingByClient = new Map<string, number>();
   for (const i of invoiceSummaries) if (i.status === "UNPAID" || i.status === "PART-PAID" || i.status === "OVERDUE") outstandingByClient.set(key(i.clientName), (outstandingByClient.get(key(i.clientName)) || 0) + i.balanceKes);
   const name = (map: Map<string, string>, id: string | null) => id ? map.get(id) || "" : "";
+  // A quote whose client record was deleted (and perhaps re-created) keeps the name on its document.
+  const quoteClientNames = new Map(quoteDocs.map(d => [d.quoteId, String((d.fields as { clientName?: unknown } | null)?.clientName || "").trim()]));
   return [
     ...c.map(r=>({id:r.id,tableName:"clients",recordData:[r.name,r.contactName||"",r.email||"",r.phone||"",moneyText(outstandingByClient.get(key(r.name)) || 0),titleCase(r.status),r.status]})),
     ...l.map(r=>({id:r.id,tableName:"leads",recordData:[r.name,r.company||"",r.source||"",moneyText(r.estimatedValue),titleCase(r.status),r.status,name(memberNames, r.assignedToUserId)||"Unassigned",r.email||"",r.phone||""]})),
     ...p.map(r=>({id:r.id,tableName:"projects",recordData:[r.name,name(clientNames, r.clientId),String(r.progress),titleCase(r.status),r.status,dayText(r.dueDate),moneyText(r.budget)]})),
-    ...q.map(r=>({id:r.id,tableName:"quotes",recordData:[r.number,name(clientNames, r.clientId),name(projectNames, r.projectId),moneyText(r.total),titleCase(r.status),r.status,dayText(r.validUntil)]})),
+    ...q.map(r=>({id:r.id,tableName:"quotes",recordData:[r.number,name(clientNames, r.clientId)||quoteClientNames.get(r.id)||"",name(projectNames, r.projectId),moneyText(r.total),titleCase(r.status),r.status,dayText(r.validUntil)]})),
     ...invoiceSummaries.map(i=>({id:i.id,tableName:"invoices",recordData:[i.number,i.clientName,dayText(i.issueDate),dayText(i.dueDate),moneyText(i.totalKes),i.status,invoiceTone(i.status),moneyText(i.balanceKes)]})),
     ...pa.map(r=>{ const invoice = r.invoiceId ? invoicesById.get(r.invoiceId) : undefined; return {id:r.id,tableName:"payments",recordData:[r.number,name(clientNames, r.clientId)||invoice?.clientName||"",invoice?.number||"",dayText(r.paidAt),moneyText(r.amount),r.method||"",titleCase(r.status),r.status]}; }),
     ...inv.map(r=>({id:r.id,tableName:"inventory",recordData:[r.name,r.category,r.sku||"",String(r.quantity),moneyText(r.unitCost),moneyText(r.quantity*r.unitCost),r.quantity<=r.reorderLevel?(r.quantity===0?"Out of Stock":"Low Stock"):"In Stock",r.quantity===0?"overdue":r.quantity<=r.reorderLevel?"pending":"active"]})),

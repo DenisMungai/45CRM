@@ -144,9 +144,12 @@ export function formatInvoiceMoney(value: number, currency: string = "KES"): str
 }
 
 export type QuoteDisplayStatus = "DRAFT" | "SENT" | "ACCEPTED" | "DECLINED" | "EXPIRED";
-export function deriveQuoteStatus(input: { decision: string | null | undefined; sent: boolean; validUntil: Date | string | null; now?: Date }): QuoteDisplayStatus {
-  if (input.decision === "accepted") return "ACCEPTED";
-  if (input.decision === "declined") return "DECLINED";
+export function deriveQuoteStatus(input: { decision: string | null | undefined; sent: boolean; validUntil: Date | string | null; storedStatus?: string | null; now?: Date }): QuoteDisplayStatus {
+  // A quote marked Accepted/Declined from the Quotes table has no client decision on its document,
+  // but it is still decided: it must not fall through to "Expired" once its date passes.
+  const decision = input.decision || (input.storedStatus || "").toLowerCase();
+  if (decision === "accepted") return "ACCEPTED";
+  if (decision === "declined") return "DECLINED";
   const until = input.validUntil ? new Date(input.validUntil) : null;
   const now = input.now ?? new Date();
   if (until && !Number.isNaN(until.getTime()) && now.getTime() > until.getTime() + 86_400_000) return "EXPIRED";
@@ -264,7 +267,7 @@ export function buildInvoiceView(input: {
   const received = (input.storedStatus || "").toLowerCase() === "paid" ? Math.max(paymentsSum, preliminary.total) : paymentsSum;
   const totals = computeInvoiceTotals(fields.items, fields.discount, received);
   const status = kind === "quote"
-    ? deriveQuoteStatus({ decision: input.decision?.decision, sent: input.sent, validUntil: input.dueDate, now: input.now })
+    ? deriveQuoteStatus({ decision: input.decision?.decision, sent: input.sent, validUntil: input.dueDate, storedStatus: input.storedStatus, now: input.now })
     : deriveInvoiceStatus({ storedStatus: input.storedStatus, total: totals.total, received: totals.received, dueDate: input.dueDate, sent: input.sent, now: input.now });
   const latest = [...input.payments].sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime())[0];
   const decided = input.decision?.decision ? { by: input.decision.by || "", at: formatInvoiceDate(input.decision.at), note: input.decision.note || "" } : null;
