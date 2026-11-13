@@ -393,7 +393,7 @@ button { border: 0; }
 .activity-event p { margin: 3px 0 0; color: #a8afb2; font-size: 9px; line-height: 1.45; }
 .activity-event span { display: block; margin-top: 4px; color: #7f888d; font-size: 8px; }
 .activity-empty { margin: 3px 0; color: #a1a8ab; font-size: 9px; line-height: 1.65; }
-.dashboard-timeline { margin-top: 13px; overflow: visible; }
+.dashboard-timeline { margin-top: 13px; }
 .dashboard-timeline .panel-head > div { min-width: 0; }
 .dashboard-timeline .panel-head > svg { width: 16px; color: #d57476; }
 .timeline-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.065); background: rgba(255,255,255,.018); }
