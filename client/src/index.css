@@ -81,7 +81,13 @@
    (or a horizontal strip is swiped past its end). Clip the x-axis at the root and stop the sideways
    bounce; text-size-adjust stops iOS inflating fonts when the phone is turned to landscape. */
 html { background: var(--background); overflow-x: hidden; overflow-x: clip; overscroll-behavior-x: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { margin: 0; min-width: 320px; background: var(--background); color: var(--foreground); font-family: "Manrope", sans-serif; overflow-x: hidden; overflow-x: clip; overscroll-behavior-x: none; overflow-wrap: break-word; }
+/* Long unbroken words (emails, links, names typed without spaces) must wrap instead of widening the page.
+   break-word only wraps after layout has sized boxes around the whole word, so in flex and grid rows a single
+   long email still pushed the page wider than the screen. anywhere also lets those boxes shrink. No min-width:
+   on laptops with classic scrollbars a 320px minimum made the page wider than the space beside the scrollbar. */
+body { margin: 0; background: var(--background); color: var(--foreground); font-family: "Manrope", sans-serif; overflow-x: hidden; overflow-x: clip; overscroll-behavior-x: none; overflow-wrap: break-word; overflow-wrap: anywhere; }
+/* Tables keep the old wrapping: they scroll sideways inside their own box rather than splitting words. */
+:where(table) { overflow-wrap: break-word; }
 /* Swiping a horizontal strip to its end must not drag the page along with it. */
 .side-nav, .table-scroller, .inv-table-wrap, [data-slot="table-container"] { overscroll-behavior-x: contain; }
 button, input { font: inherit; }
@@ -248,6 +254,30 @@ button { border: 0; }
 .progress-line span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#cf4c4f,#e86d6e); }
 .projects-table .progress-cell { display: flex; align-items: center; gap: 8px; }
 .projects-table .progress-cell small { color: #9ba0a3; font-size: 8px; }
+/* Phones: every list table becomes stacked cards so it never slides sideways. Each cell shows its column
+   name from data-label, copied from the header by lib/tableLabels.ts. Rows with a select box keep it beside
+   the title, and the header shrinks to a "Select all" bar. */
+@media (max-width: 760px) {
+  .table-scroller { overflow-x: visible; }
+  .data-table, .data-table tbody { display: block; min-width: 0; }
+  .data-table thead { display: none; }
+  .editable-table thead { display: block; }
+  .editable-table thead tr { display: flex; }
+  .editable-table thead th { display: none; }
+  .editable-table thead th:first-child { width: 100%; display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+  .editable-table thead th:first-child::after { content: "Select all"; }
+  .data-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr); padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .data-table tbody tr:last-child { border-bottom: 0; }
+  .editable-table tbody tr { grid-template-columns: 16px minmax(0, 1fr); column-gap: 10px; }
+  .data-table td, .data-table td:first-child { grid-column: 1 / -1; width: auto; height: auto; min-height: 24px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 3px 0; border: 0; text-align: right; white-space: normal; overflow-wrap: anywhere; }
+  .data-table td::before { content: attr(data-label); margin-right: auto; flex: 0 0 auto; color: #8f969b; font-weight: 600; text-align: left; }
+  .data-table td[data-label=""]::before, .data-table td.strong-cell::before { content: none; }
+  .data-table td.strong-cell { justify-content: flex-start; text-align: left; font-size: 11px; }
+  .editable-table td:first-child { grid-column: 1; justify-content: center; }
+  .editable-table td:first-child::before { content: none; }
+  .editable-table td:first-child + td { grid-column: 2; }
+  .data-table td.activity-empty { grid-column: 1 / -1; justify-content: center; text-align: center; }
+}
 
 .client-detail-grid { display: grid; grid-template-columns: minmax(250px,.83fr) minmax(0,1.45fr); gap: 13px; }
 .client-card { padding: 18px; }
@@ -950,7 +980,7 @@ button { border: 0; }
 .portal-section h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; color: #e6e7e5; font-size: 13px; }
 .portal-section h2 svg { width: 14px; height: 14px; color: #d68587; }
 .portal-card { padding: 12px 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(255,255,255,.025); margin-bottom: 9px; }
-.portal-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.portal-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .portal-card-head strong { color: #f1eeea; font-size: 12px; }
 .portal-card-head small { display: block; color: #8f969b; font-size: 9px; }
 .portal-progress { display: flex; align-items: center; gap: 8px; min-width: 160px; }
