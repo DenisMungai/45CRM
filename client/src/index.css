@@ -86,6 +86,21 @@ body { margin: 0; min-width: 320px; background: var(--background); color: var(--
 .side-nav, .table-scroller, .inv-table-wrap, [data-slot="table-container"] { overscroll-behavior-x: contain; }
 button, input { font: inherit; }
 button { border: 0; }
+/* Form controls and fieldsets must never be wider than the box they sit in. Browsers give fieldsets
+   `min-width: min-content` and inputs a ~20-character default width, which pushed fields past the
+   edge of dialogs on phones and let them overlap. :where() keeps this at zero specificity so any
+   deliberate width/min-width below still wins. */
+:where(input, select, textarea) { min-width: 0; max-width: 100%; }
+:where(textarea) { resize: vertical; }
+:where(fieldset) { min-width: 0; }
+/* iOS Safari draws date inputs at their own intrinsic width and ignores width: 100%, so they spill out of
+   their column; render them as plain text fields there (the native date picker still opens on tap). */
+@supports (-webkit-touch-callout: none) {
+  input[type="date"] { display: block; -webkit-appearance: none; appearance: none; min-height: 1.5em; }
+  input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+}
+/* Scrolling inside a popup or list must stop at its end instead of dragging the page behind it. */
+.record-dialog, .contract-document, .inv-dialog-sheet, .assistant-chat, .notify-panel { overscroll-behavior: contain; }
 
 .dashboard-app { min-height: 100vh; background: radial-gradient(circle at 73% -8%, rgba(185, 73, 75, .16), transparent 26%), radial-gradient(circle at 38% 105%, rgba(68, 87, 119, .13), transparent 32%), #07080a; color: #ebedef; display: flex; overflow: hidden; position: relative; }
 .dashboard-app::before { content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .65; background-image: linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.014) 1px, transparent 1px); background-size: 48px 48px; mask-image: linear-gradient(to bottom, black, transparent 78%); }
@@ -140,7 +155,9 @@ button { border: 0; }
 .heading-action svg { width: 13px; height: 13px; }
 
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 13px; }
-.metric-card, .panel { background: linear-gradient(138deg, rgba(48,52,58,.5), rgba(22,25,30,.54) 42%, rgba(13,15,18,.64) 100%); border: 1px solid rgba(255,255,255,.15); border-radius: 14px; box-shadow: 0 16px 38px rgba(0,0,0,.17), inset 0 1px 0 rgba(255,255,255,.115), inset 0 -1px rgba(0,0,0,.22); backdrop-filter: blur(24px) saturate(145%); -webkit-backdrop-filter: blur(24px) saturate(145%); position: relative; overflow: hidden; }
+/* clip, not just hidden: the corner glow below hangs 35px past the right edge, and a hidden-overflow card is
+   still a scroll box the browser can nudge sideways (e.g. when a field inside takes focus). clip cannot scroll. */
+.metric-card, .panel { background: linear-gradient(138deg, rgba(48,52,58,.5), rgba(22,25,30,.54) 42%, rgba(13,15,18,.64) 100%); border: 1px solid rgba(255,255,255,.15); border-radius: 14px; box-shadow: 0 16px 38px rgba(0,0,0,.17), inset 0 1px 0 rgba(255,255,255,.115), inset 0 -1px rgba(0,0,0,.22); backdrop-filter: blur(24px) saturate(145%); -webkit-backdrop-filter: blur(24px) saturate(145%); position: relative; overflow: hidden; overflow: clip; }
 .metric-card::before, .panel::before { content: ""; position: absolute; top: 0; left: 9%; right: 9%; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.38), transparent); opacity: .62; pointer-events: none; }
 .metric-card::after, .panel::after { content: ""; position: absolute; width: 160px; height: 160px; top: -124px; right: -35px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.09), transparent 68%); filter: blur(8px); pointer-events: none; }
 .metric-card { min-height: 92px; padding: 13px 14px; }
@@ -204,7 +221,7 @@ button { border: 0; }
 .bulk-actions .bulk-delete { color: #ffe4e3; border: 1px solid rgba(232,104,107,.25); background: rgba(183,57,61,.19); }
 .bulk-actions button:disabled { cursor: not-allowed; opacity: .43; }
 .bulk-actions svg { width: 11px; height: 11px; }
-.table-panel { overflow: hidden; }
+.table-panel { overflow: hidden; overflow: clip; }
 .table-scroller { overflow-x: auto; }
 .data-table { width: 100%; min-width: 710px; border-collapse: collapse; text-align: left; }
 .data-table th { height: 35px; padding: 0 14px; border-bottom: 1px solid rgba(255,255,255,.08); color: #a0a6ac; background: rgba(255,255,255,.035); font-size: 9px; font-weight: 600; white-space: nowrap; }
@@ -362,23 +379,34 @@ button { border: 0; }
 .recovery-dismiss:hover { color: #fff; background: rgba(255,255,255,.08); }
 .recovery-dismiss svg { width: 13px; height: 13px; }
 .record-dialog-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px 20px 20px 240px; background: rgba(2,3,5,.68); backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px); animation: dialog-fade 170ms cubic-bezier(.23,1,.32,1); }
-.record-dialog { width: min(600px, 100%); max-height: min(720px, calc(100dvh - 40px)); padding: 20px; overflow: auto; border-color: rgba(255,255,255,.19); background: linear-gradient(145deg, rgba(47,52,60,.89), rgba(13,16,20,.94)); box-shadow: 0 28px 90px rgba(0,0,0,.52), inset 0 1px rgba(255,255,255,.17); animation: dialog-rise 210ms cubic-bezier(.23,1,.32,1); }
+.record-dialog { width: min(600px, 100%); max-height: min(720px, calc(100dvh - 40px)); padding: 20px; overflow-x: hidden; overflow-y: auto; border-color: rgba(255,255,255,.19); background: linear-gradient(145deg, rgba(47,52,60,.89), rgba(13,16,20,.94)); box-shadow: 0 28px 90px rgba(0,0,0,.52), inset 0 1px rgba(255,255,255,.17); animation: dialog-rise 210ms cubic-bezier(.23,1,.32,1); }
 .record-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,.09); }
+/* The panel corner glow hangs 35px past the right edge. Ordinary panels clip it, but popups and the
+   notification list scroll, so it gave them 35px of sideways scroll: swiping (or focusing a field)
+   slid the whole form left. Keep the glow inside their edge. */
+.record-dialog::after, .notify-panel::after { right: 0; }
+/* "Edit details" opens its form on top of the invoice/quote popup, nested inside it. The popup's
+   backdrop-filter would trap that form's fixed backdrop inside the popup, squeezing it (plus the
+   sidebar padding) until the line items overflowed. Drop the filter while a form sits on top. */
+.record-dialog:has(.record-dialog-backdrop) { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.record-dialog-head > :first-child { min-width: 0; }
 .record-dialog-head h2 { margin: 5px 0 0; color: #f0f2ef; font-family: "DM Sans", sans-serif; font-size: 18px; letter-spacing: -.045em; text-transform: capitalize; }
 .activity-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .record-close { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 30px; border: 1px solid rgba(255,255,255,.12); border-radius: 9px; color: #c2c8ca; background: rgba(255,255,255,.045); }
 .record-close:hover { color: #fff; background: rgba(255,255,255,.09); }
 .record-close svg { width: 15px; height: 15px; }
 .record-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
-.record-fields label { display: grid; gap: 6px; color: #adb4b6; font-size: 8px; font-weight: 800; letter-spacing: .075em; text-transform: uppercase; }
+.record-fields label { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; color: #adb4b6; font-size: 8px; font-weight: 800; letter-spacing: .075em; text-transform: uppercase; }
 .record-fields input, .record-fields select { width: 100%; height: 37px; padding: 0 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: 0; color: #eef0ed; background: rgba(4,6,8,.31); font-family: "Manrope", sans-serif; font-size: 10px; box-shadow: inset 0 1px rgba(255,255,255,.05); transition: border-color 140ms ease, box-shadow 140ms ease; }
-.record-fields input:focus, .record-fields select:focus { border-color: rgba(221,102,104,.54); box-shadow: 0 0 0 3px rgba(194,68,71,.12), inset 0 1px rgba(255,255,255,.07); }
+.record-fields label.wide { grid-column: 1 / -1; }
+.record-fields textarea { width: 100%; padding: 8px 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: 0; color: #eef0ed; background: rgba(4,6,8,.31); font-family: "Manrope", sans-serif; font-size: 10px; text-transform: none; letter-spacing: normal; font-weight: 500; }
+.record-fields input:focus, .record-fields select:focus, .record-fields textarea:focus { border-color: rgba(221,102,104,.54); box-shadow: 0 0 0 3px rgba(194,68,71,.12), inset 0 1px rgba(255,255,255,.07); }
 .auth-field { position: relative; }
 .auth-field svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: #8f969c; pointer-events: none; z-index: 1; }
 .auth-field input { width: 100%; height: 42px; padding: 0 14px 0 40px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; outline: 0; color: #eef0ed; background: rgba(4,6,8,.31); font-family: "Manrope", sans-serif; font-size: 13px; box-shadow: inset 0 1px rgba(255,255,255,.05); transition: border-color 140ms ease, box-shadow 140ms ease; }
 .auth-field input::placeholder { color: #6b7176; }
 .auth-field input:focus { border-color: rgba(221,102,104,.54); box-shadow: 0 0 0 3px rgba(194,68,71,.12), inset 0 1px rgba(255,255,255,.07); }
-.record-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.record-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .record-dialog-actions button { min-height: 34px; padding: 0 12px; border-radius: 9px; font-size: 9px; font-weight: 700; }
 .record-reset { color: #c1c6c6; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.045); }
 .record-save { display: inline-flex; align-items: center; gap: 5px; color: white; border: 1px solid rgba(255,195,195,.25); background: linear-gradient(135deg, #bf4b4e, #973639); box-shadow: inset 0 1px rgba(255,255,255,.18); }
@@ -410,7 +438,7 @@ button { border: 0; }
 .timeline-row strong { display: block; color: #edf0ed; font-size: 10px; }
 .timeline-row p { margin: 3px 0 0; color: #a8afb2; font-size: 9px; line-height: 1.45; }
 .timeline-row span { display: block; margin-top: 4px; color: #7f888d; font-size: 8px; }
-.role-admin-panel { padding: 0; overflow: hidden; }
+.role-admin-panel { padding: 0; overflow: hidden; overflow: clip; }
 .role-admin-panel > svg { width: 17px; color: #d97879; }
 .role-toolbar { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,.075); background: rgba(255,255,255,.022); }
 .role-toolbar label { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; color: #c3c8c8; font-size: 9px; }
@@ -497,7 +525,7 @@ button { border: 0; }
 .settings-card-head p { margin: 4px 0 0; color: #92999c; font-size: 9px; }
 .settings-card-head img { width: 54px; height: 54px; object-fit: contain; mix-blend-mode: screen; }
 .settings-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
-.settings-fields label { display: grid; gap: 6px; color: #aab1b4; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+.settings-fields label { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; color: #aab1b4; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
 .settings-fields label.wide { grid-column: 1 / -1; }
 .webhook-snippet { white-space: pre-wrap; word-break: break-all; background: rgba(4,6,8,.4); border: 1px solid rgba(255,255,255,.1); border-radius: 9px; padding: 10px 12px; color: #c9cdd0; font-family: "SFMono-Regular", Menlo, monospace; font-size: 9.5px; line-height: 1.5; text-transform: none; letter-spacing: normal; font-weight: 400; }
 .settings-fields input, .settings-fields select { width: 100%; height: 34px; padding: 0 10px; border: 1px solid rgba(255,255,255,.13); border-radius: 8px; outline: 0; background: rgba(4,6,8,.25); color: #e1e4e1; font-family: "Manrope", sans-serif; font-size: 9px; text-transform: none; letter-spacing: normal; box-shadow: inset 0 1px rgba(255,255,255,.05); }
@@ -616,7 +644,7 @@ button { border: 0; }
 
 /* Public contract signing page */
 .sign-page { min-height: 100vh; width: 100%; display: flex; justify-content: center; padding: 40px 16px 64px; background: radial-gradient(120% 120% at 50% -10%, rgba(198,70,72,.12), transparent 55%), #0b0c0e; }
-.sign-shell { width: min(760px, 100%); display: flex; flex-direction: column; gap: 18px; }
+.sign-shell { width: min(760px, 100%); min-width: 0; display: flex; flex-direction: column; gap: 18px; }
 .sign-brand { display: flex; align-items: center; gap: 8px; color: #eee; font-weight: 800; letter-spacing: .04em; }
 .sign-brand svg { width: 18px; height: 18px; color: #d68587; }
 .sign-state { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 60px 20px; color: #cfd3d1; }
@@ -661,7 +689,7 @@ button { border: 0; }
 }
 
 /* ---- 45Creatives invoice sheet (CRM, public link and print share these styles) ---- */
-.inv-sheet { --inv-ink: #111; --inv-soft: #3d3d3d; --inv-muted: #666; --inv-rule: #e6e6e6; --inv-red: #d81b22; --inv-panel: #f4f4f4; --inv-panel-rule: #e2e2e2; max-width: 860px; margin: 0 auto; padding: 52px 56px 32px; color: var(--inv-ink); background: #fff; border-radius: 6px; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 13px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.inv-sheet { --inv-ink: #111; --inv-soft: #3d3d3d; --inv-muted: #666; --inv-rule: #e6e6e6; --inv-red: #d81b22; --inv-panel: #f4f4f4; --inv-panel-rule: #e2e2e2; width: 100%; max-width: 860px; margin: 0 auto; padding: 52px 56px 32px; color: var(--inv-ink); background: #fff; border-radius: 6px; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 13px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 :where(.inv-sheet) :is(h1, h2, h3, p, dl, dd) { margin: 0; }
 .inv-label { color: var(--inv-muted); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
 .inv-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; padding-bottom: 10px; border-bottom: 2px solid var(--inv-red); }
@@ -716,7 +744,7 @@ button { border: 0; }
 .inv-foot span { color: var(--inv-muted); }
 .inv-callout { margin-bottom: 12px; }
 .inv-shell { width: min(900px, 100%); }
-.inv-public-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.inv-public-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .inv-public-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; border: 1px solid rgba(255,255,255,.16); border-radius: 9px; color: #eceeed; background: rgba(255,255,255,.05); font-size: 11px; font-weight: 700; cursor: pointer; }
 .inv-public-actions button.primary { border-color: rgba(255,189,189,.24); color: #fff; background: linear-gradient(135deg, rgba(198,70,72,.93), rgba(149,42,45,.84)); }
 .inv-public-actions button:disabled { opacity: .5; cursor: not-allowed; }
@@ -778,6 +806,9 @@ button { border: 0; }
 .notify-badge { position: absolute; top: -3px; right: -4px; min-width: 14px; height: 14px; padding: 0 3px; display: grid; place-items: center; border-radius: 999px; color: #fff; background: #c74d50; font-size: 7.5px; font-weight: 800; line-height: 1; box-shadow: 0 0 0 2px #0b0c0e; }
 .notify-badge.quiet { background: #4f6f8f; }
 .notify-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: min(340px, 86vw); max-height: min(440px, 70vh); overflow: auto; background: var(--popover); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+/* Phones: the bell sits left of the profile chip, so a panel anchored to it ran off the left edge. Anchor it to
+   the top bar's right edge instead. */
+@media (max-width: 760px) { .topbar { position: relative; } .notify-wrap { position: static; } .notify-panel { width: min(340px, 100%); } }
 .notify-list { display: flex; flex-direction: column; padding: 6px; }
 .notify-item { display: grid; grid-template-columns: 8px minmax(0,1fr) 12px; align-items: center; gap: 9px; padding: 8px; border-radius: 8px; color: #d5d8d8; background: transparent; text-align: left; }
 .notify-item:hover { background: rgba(255,255,255,.05); }
@@ -840,7 +871,8 @@ button { border: 0; }
 .quote-decision p { margin: 0; color: #a7aeb1; font-size: 10.5px; }
 .quote-decision label, .portal-form label { display: flex; flex-direction: column; gap: 5px; color: #b9bfc1; font-size: 10px; }
 .quote-decision input, .quote-decision textarea, .portal-form input, .portal-form textarea, .mpesa-paste textarea, .mpesa-paste select, .work-time-form input, .work-time-form select, .work-task select, .work-task-add input { padding: 7px 9px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; color: #eef0ed; background: rgba(0,0,0,.25); font: inherit; font-size: 10.5px; }
-.work-dialog { width: min(980px, 96vw); }
+/* 100% of the backdrop, not 96vw: the backdrop leaves room for the sidebar, so 96vw ran off-screen. */
+.work-dialog { width: min(980px, 100%); }
 .work-summary { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin: 10px 0; }
 .work-summary > div { display: flex; flex-direction: column; gap: 2px; padding: 9px 10px; border: 1px solid rgba(255,255,255,.07); border-radius: 9px; background: rgba(255,255,255,.025); }
 .work-summary span { color: #8f969b; font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
@@ -870,7 +902,8 @@ button { border: 0; }
 .icon-button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border-radius: 6px; color: #8f969b; background: transparent; }
 .icon-button:hover { color: #e56a6b; background: rgba(229,106,107,.1); }
 .icon-button svg { width: 11px; height: 11px; }
-.work-time-form { display: grid; grid-template-columns: 2fr repeat(5, minmax(0,1fr)) auto auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; }
+.work-time-form { display: grid; grid-template-columns: minmax(0,2fr) repeat(5, minmax(0,1fr)) auto auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; }
+.work-time-form label, .mpesa-paste label, .mpesa-code-fields label, .quote-decision label, .portal-form label, .sign-form label { min-width: 0; }
 .work-time-form label { display: flex; flex-direction: column; gap: 4px; color: #a7aeb1; font-size: 9px; }
 .work-time-form .checkbox-field { flex-direction: row; align-items: center; }
 .work-subdialog { position: sticky; bottom: 0; margin-top: 12px; padding: 12px; border: 1px solid rgba(199,77,80,.35); border-radius: 10px; background: #15171a; box-shadow: 0 -12px 30px rgba(0,0,0,.4); }
@@ -899,7 +932,7 @@ button { border: 0; }
 .mpesa-panel { margin-bottom: 13px; }
 .mpesa-body { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; }
 .mpesa-body p { margin: 0; }
-.mpesa-paste { display: grid; grid-template-columns: 2fr 1fr auto; gap: 9px; align-items: end; }
+.mpesa-paste { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto; gap: 9px; align-items: end; }
 .mpesa-paste label { display: flex; flex-direction: column; gap: 4px; color: #a7aeb1; font-size: 9px; }
 .reminder-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; padding: 10px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: rgba(255,255,255,.025); }
 .reminder-box > div:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
@@ -947,7 +980,7 @@ button { border: 0; }
 .portal-upload { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
 @media (max-width: 760px) {
   .work-summary, .portal-stats { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .work-time-form, .mpesa-paste { grid-template-columns: 1fr 1fr; }
+  .work-time-form, .mpesa-paste { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .vault-grid { grid-template-columns: 1fr; }
   .portal-list > div { grid-template-columns: 1fr auto; }
   .work-task { grid-template-columns: 16px minmax(0,1fr) 22px; }
